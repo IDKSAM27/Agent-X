@@ -1,0 +1,8 @@
+{
+<<<<<<< HEAD
+    "java.configuration.updateBuildConfiguration": "automatic"
+=======
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "cmake.ignoreCMakeListsMissing": true
+>>>>>>> 95a516674c91df4bd610c20ab60621333e06effa
+}

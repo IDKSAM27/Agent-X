@@ -1,0 +1,37 @@
+name: agent_x_assistant
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  firebase_core: ^2.25.4
+  firebase_auth: ^4.17.8 
+  google_sign_in: ^6.2.1
+  cupertino_icons: ^1.0.8
+  http: ^1.2.1
+  flutter_dotenv: ^5.1.0
+  cloud_firestore: ^4.15.0
+  intl: ^0.18.1
+  table_calendar: ^3.0.9
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    - .env
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/app_icon.png"

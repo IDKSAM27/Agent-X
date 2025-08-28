@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "25478506784",
+    "project_id": "agent-x-99092",
+    "storage_bucket": "agent-x-99092.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:25478506784:android:44c20fd3c200f236ac8f45",
+        "android_client_info": {
+          "package_name": "com.example.agent_x_assistant"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCehZ4r0e5ReBl6ndSmFqtuzq2fzyr0580"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:25478506784:android:c6bdcdcb7ca00413ac8f45",
+        "android_client_info": {
+          "package_name": "com.gyansam.agentx"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCehZ4r0e5ReBl6ndSmFqtuzq2fzyr0580"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
