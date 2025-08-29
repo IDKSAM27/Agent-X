@@ -28,3 +28,8 @@ firebase login
 
 # Configure your Flutter project
 flutterfire configure
+
+===========================================================================================================================
+
+The Below will give me the SHA1
+cd android; .gradlew/signingReport
