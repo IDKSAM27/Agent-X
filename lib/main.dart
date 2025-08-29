@@ -1,32 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-
 import 'firebase_options.dart';
-import 'screens/login_screen.dart'; // Login screen
-import 'screens/home_screen.dart'; // Home screen
+import 'screens/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Load environment variables before anything else
+  
+  // Load environment variables
   await dotenv.load();
-
-  // Initialize Firebase
+  
+  // Initialize Firebase with new configuration
   await Firebase.initializeApp(
-  options: DefaultFirebaseOptions.currentPlatform,);
-
-
-  runApp(const MyApp());
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  
+  runApp(const AgentXApp()); // Renamed for clarity
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class AgentXApp extends StatelessWidget {
+  const AgentXApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Agent X Assistant',
+      title: 'AgentX',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.light,
@@ -34,6 +32,7 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.white,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.deepPurple,
+          foregroundColor: Colors.white,
         ),
       ),
       darkTheme: ThemeData(
@@ -42,10 +41,11 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.black,
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.deepPurple,
+          foregroundColor: Colors.white,
         ),
       ),
-      themeMode: ThemeMode.system, // 🌓 Auto switch based on device settings
-      home: const LoginScreen(), // Start with the login screen
+      themeMode: ThemeMode.system,
+      home: const LoginScreen(),
     );
   }
 }

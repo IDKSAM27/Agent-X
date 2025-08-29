@@ -9,7 +9,7 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Agent X Assistant')),
+      appBar: AppBar(title: const Text('AgentX')),
       body: Column(
         children: [
           // Top content
@@ -19,7 +19,7 @@ class HomeScreen extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'Welcome to Agent-X! You are logged in.',
+                    'Welcome to AgentX! You are logged in.',
                     style: TextStyle(fontSize: 18),
                   ),
                   const SizedBox(height: 20),

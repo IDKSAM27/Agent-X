@@ -1,4 +1,4 @@
-package com.example.agent_x_assistant
+package com.idksam.agentx
 
 import io.flutter.embedding.android.FlutterActivity
 

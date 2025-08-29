@@ -1,0 +1,35 @@
+# Firebase configuration
+
+Enable Required Services
+
+    Authentication:
+        Go to Authentication → Sign-in method
+        Enable Email/Password and Google sign-in
+        Add your app's domain to authorized domains
+
+    Firestore Database:
+        Go to Firestore Database → Create database
+        Start in test mode (we'll secure it later)
+        Choose your preferred region
+
+    Storage (for future file uploads):
+        Go to Storage → Get started
+        Start in test mode
+
+Step 2: Replace Firebase Configuration
+Install FlutterFire CLI
+
+# Install FlutterFire CLI
+npm install -g firebase-tools
+dart pub global activate flutterfire_cli
+
+# Login to Firebase
+firebase login
+
+# Configure your Flutter project
+flutterfire configure
+
+===========================================================================================================================
+
+The Below will give me the SHA1
+cd android; .gradlew/signingReport

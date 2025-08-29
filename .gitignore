@@ -12,7 +12,9 @@
 .swiftpm/
 migrate_working_dir/
 .env
-.env
+google-services.json
+GoogleService-Info.plist
+firebase_options.dartoogle-services.json
 
 # IntelliJ related
 *.iml
@@ -45,3 +47,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+.env.local
+.env.production
+
+# API keys
+*.key
+*.pem

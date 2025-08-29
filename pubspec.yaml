@@ -1,6 +1,9 @@
-name: agent_x_assistant
-description: "A new Flutter project."
+name: AgentX
+description: "A Personal AI Assistant."
 publish_to: 'none'
+
+homepage: https://github.com/IDKSAM27/Agent-X
+repository: https://github.com/IDKSAM27/Agent-X
 
 version: 1.0.0+1
 
