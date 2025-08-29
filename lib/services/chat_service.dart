@@ -14,7 +14,7 @@ class ChatService {
           'Authorization': 'Bearer $apiKey',
           'Content-Type': 'application/json',
           'HTTP-Referer': 'https://yourapp.com', // Optional
-          'X-Title': 'AgentXAssistant',
+          'X-Title': 'AgentX',
         },
         body: jsonEncode({
           "model": "google/gemma-3n-e4b-it:free",
