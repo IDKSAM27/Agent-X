@@ -613,55 +613,11 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Future<void> _navigateToHome() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    // Show success message
+    _showSuccessSnackBar('Welcome back!');
 
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get()
-          .timeout(const Duration(seconds: 10));
-
-      if (!mounted) return;
-
-      if (!doc.exists || doc.data()?['profession'] == null) {
-        Navigator.pushReplacement(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => ProfessionInputScreen(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            transitionDuration: AppConstants.normalAnimation,
-          ),
-        );
-      } else {
-        _showSuccessSnackBar('Welcome back!');
-        Navigator.pushReplacement(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const HomeScreen(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            transitionDuration: AppConstants.normalAnimation,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => ProfessionInputScreen(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
-            transitionDuration: AppConstants.normalAnimation,
-          ),
-        );
-      }
-    }
+    // The AuthGate will automatically handle navigation
+    // based on auth state changes, so we don't need to navigate manually
   }
+
 }
