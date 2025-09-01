@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../services/chat_service.dart';
-import '../widgets/chat_bubble.dart';
+import '../widgets/enhanced_chat_bubble.dart';
+import '../models/chat_message.dart';
+import '../core/constants/app_constants.dart';
 
 class ChatScreen extends StatefulWidget {
   final String profession;
@@ -11,89 +15,463 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen>
+    with TickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
-  final List<Map<String, String>> _messages = [];
+  final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode();
+
+  List<ChatMessage> _messages = [];
   bool _isTyping = false;
-  String _botTypingMessage = '';
+  bool _isTextEmpty = true;
 
-  void _sendMessage() async {
-    final userMessage = _controller.text.trim();
-    if (userMessage.isEmpty) return;
+  late AnimationController _sendButtonController;
+  late AnimationController _inputController;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _sendButtonController = AnimationController(
+      duration: AppConstants.fastAnimation,
+      vsync: this,
+    );
+
+    _inputController = AnimationController(
+      duration: AppConstants.normalAnimation,
+      vsync: this,
+    );
+
+    _controller.addListener(_onTextChanged);
+    _inputController.forward();
+
+    // Add welcome message
+    _addWelcomeMessage();
+  }
+
+  void _addWelcomeMessage() {
+    final welcomeMessage = ChatMessage(
+      id: 'welcome',
+      content: 'Hello! I\'m Agent X, your AI assistant. I\'m here to help you with anything related to your profession as a ${widget.profession}. How can I assist you today?',
+      type: MessageType.assistant,
+      timestamp: DateTime.now(),
+    );
 
     setState(() {
-      _messages.add({"role": "user", "content": userMessage});
-      _controller.clear();
-      _isTyping = true;
+      _messages.add(welcomeMessage);
     });
+  }
 
-    final botResponse = await ChatService.getChatResponse(userMessage);
+  void _onTextChanged() {
+    final isEmpty = _controller.text.trim().isEmpty;
+    if (isEmpty != _isTextEmpty) {
+      setState(() => _isTextEmpty = isEmpty);
+      if (isEmpty) {
+        _sendButtonController.reverse();
+      } else {
+        _sendButtonController.forward();
+      }
+    }
+  }
 
-    setState(() {
-      _isTyping = false;
-      _messages.add({"role": "assistant", "content": botResponse});
-    });
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    _focusNode.dispose();
+    _sendButtonController.dispose();
+    _inputController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Agent X Chatbot')),
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      appBar: _buildAppBar(),
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              reverse: false,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                return ChatBubble(
-                  message: msg['content']!,
-                  isUser: msg['role'] == 'user',
-                );
-              },
+            child: _buildMessagesList(),
+          ),
+          _buildInputSection(),
+        ],
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      elevation: 0,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      surfaceTintColor: Colors.transparent,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back_ios),
+        onPressed: () => Navigator.pop(context),
+        splashRadius: 24,
+      ),
+      title: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Theme.of(context).colorScheme.primary,
+                  Theme.of(context).colorScheme.secondary,
+                ],
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(
+              Icons.smart_toy_rounded,
+              color: Colors.white,
+              size: 20,
             ),
           ),
-          if (_isTyping)
-            const Padding(
-              padding: EdgeInsets.only(left: 12, bottom: 12),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: ChatBubble(
-                  message: "typing...",
-                  isUser: false,
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
+          const SizedBox(width: AppConstants.spacingM),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: const InputDecoration(
-                      hintText: "Ask something...",
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(12)),
-                      ),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                    ),
+                Text(
+                  'Agent X',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: _isTyping ? null : _sendMessage,
-                  color: Colors.deepPurple,
+                Text(
+                  _isTyping ? 'typing...' : 'AI Assistant',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
           ),
         ],
       ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.more_vert),
+          onPressed: _showOptionsMenu,
+          splashRadius: 24,
+        ),
+      ],
     );
   }
-} 
+
+  Widget _buildMessagesList() {
+    return ListView.builder(
+      controller: _scrollController,
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingM),
+      itemCount: _messages.length,
+      itemBuilder: (context, index) {
+        final message = _messages[index];
+        final showAvatar = index == _messages.length - 1 ||
+            _messages[index + 1].type != message.type;
+
+        return EnhancedChatBubble(
+          message: message,
+          showAvatar: showAvatar,
+          onRetry: message.status == MessageStatus.failed
+              ? () => _retryMessage(message)
+              : null,
+        );
+      },
+    );
+  }
+
+  Widget _buildInputSection() {
+    return AnimatedBuilder(
+      animation: _inputController,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(0, 50 * (1 - _inputController.value)),
+          child: Opacity(
+            opacity: _inputController.value,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              padding: EdgeInsets.fromLTRB(
+                AppConstants.spacingM,
+                AppConstants.spacingM,
+                AppConstants.spacingM,
+                MediaQuery.of(context).viewInsets.bottom > 0
+                    ? AppConstants.spacingM
+                    : AppConstants.spacingM + MediaQuery.of(context).padding.bottom,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Container(
+                      constraints: const BoxConstraints(maxHeight: 120),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                        ),
+                      ),
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        maxLines: null,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          hintText: 'Ask me anything...',
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 16,
+                          ),
+                          hintStyle: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.6),
+                          ),
+                        ),
+                        style: Theme.of(context).textTheme.bodyMedium,
+                        enabled: !_isTyping,
+                        onSubmitted: (_) => _sendMessage(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppConstants.spacingS),
+                  _buildSendButton(),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSendButton() {
+    return AnimatedBuilder(
+      animation: _sendButtonController,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: 0.8 + (0.2 * _sendButtonController.value),
+          child: Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              gradient: _isTextEmpty || _isTyping
+                  ? null
+                  : LinearGradient(
+                colors: [
+                  Theme.of(context).colorScheme.primary,
+                  Theme.of(context).colorScheme.secondary,
+                ],
+              ),
+              color: _isTextEmpty || _isTyping
+                  ? Theme.of(context).colorScheme.outline.withOpacity(0.3)
+                  : null,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: _isTextEmpty || _isTyping ? null : _sendMessage,
+                child: Icon(
+                  Icons.send_rounded,
+                  color: _isTextEmpty || _isTyping
+                      ? Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.5)
+                      : Colors.white,
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _sendMessage() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _isTyping) return;
+
+    // Add haptic feedback
+    HapticFeedback.lightImpact();
+
+    // Create user message
+    final userMessage = ChatMessage(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      content: text,
+      type: MessageType.user,
+      timestamp: DateTime.now(),
+      status: MessageStatus.sending,
+    );
+
+    setState(() {
+      _messages.add(userMessage);
+      _isTyping = true;
+    });
+
+    _controller.clear();
+    _scrollToBottom();
+
+    // Update message status to sent
+    setState(() {
+      final index = _messages.indexWhere((m) => m.id == userMessage.id);
+      if (index != -1) {
+        _messages[index] = userMessage.copyWith(status: MessageStatus.sent);
+      }
+    });
+
+    try {
+      // Get AI response
+      final response = await ChatService.getChatResponse(text);
+
+      // Create assistant message
+      final assistantMessage = ChatMessage(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        content: response,
+        type: MessageType.assistant,
+        timestamp: DateTime.now(),
+      );
+
+      setState(() {
+        _messages.add(assistantMessage);
+        _isTyping = false;
+      });
+
+      _scrollToBottom();
+
+    } catch (e) {
+      setState(() {
+        _isTyping = false;
+        final index = _messages.indexWhere((m) => m.id == userMessage.id);
+        if (index != -1) {
+          _messages[index] = userMessage.copyWith(status: MessageStatus.failed);
+        }
+      });
+
+      _showErrorMessage('Failed to send message. Please try again.');
+    }
+  }
+
+  void _retryMessage(ChatMessage message) {
+    // Implementation for retry functionality
+    HapticFeedback.lightImpact();
+    _sendMessage();
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: AppConstants.normalAnimation,
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  void _showOptionsMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppConstants.radiusL),
+          ),
+        ),
+        padding: AppConstants.paddingL,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: AppConstants.spacingL),
+            ListTile(
+              leading: const Icon(Icons.clear_all),
+              title: const Text('Clear Chat'),
+              onTap: _clearChat,
+            ),
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: const Text('Export Chat'),
+              onTap: _exportChat,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _clearChat() {
+    Navigator.pop(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear Chat'),
+        content: const Text('Are you sure you want to clear all messages?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _messages.clear();
+              });
+              _addWelcomeMessage();
+            },
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _exportChat() {
+    Navigator.pop(context);
+    // Implementation for export functionality
+    _showErrorMessage('Export feature coming soon!');
+  }
+
+  void _showErrorMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white, size: 20),
+            const SizedBox(width: AppConstants.spacingM),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        ),
+        margin: AppConstants.paddingM,
+      ),
+    );
+  }
+}
