@@ -33,3 +33,22 @@ flutterfire configure
 
 The Below will give me the SHA1
 cd android; .gradlew/signingReport
+
+===========================================================================================================================
+
+#TODO:
+
+-> login_screen.dart
+
+child: Image.asset(
+  Theme.of(context).brightness == Brightness.dark 
+    ? 'assets/icons/app_icon_dark.png'
+    : 'assets/icons/app_icon_light.png',
+  width: 88,
+  height: 88,
+  fit: BoxFit.cover,
+),
+
+#TODO:
+
+Delete chat_bubble.dart once the enhanced version is usable and bug free.
