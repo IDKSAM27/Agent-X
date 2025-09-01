@@ -5,6 +5,7 @@ import '../services/chat_service.dart';
 import '../widgets/enhanced_chat_bubble.dart';
 import '../models/chat_message.dart';
 import '../core/constants/app_constants.dart';
+import '../widgets/app_logo.dart';
 
 class ChatScreen extends StatefulWidget {
   final String profession;
@@ -112,23 +113,11 @@ class _ChatScreenState extends State<ChatScreen>
       ),
       title: Row(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Theme.of(context).colorScheme.primary,
-                  Theme.of(context).colorScheme.secondary,
-                ],
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Icon(
-              Icons.smart_toy_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
+          // Replace the old Container with AppLogo
+          const AppLogo(
+            size: 40,
+            showShadow: true,
+            useGradientBackground: false, // Set to true if you want gradient background
           ),
           const SizedBox(width: AppConstants.spacingM),
           Expanded(
@@ -161,6 +150,7 @@ class _ChatScreenState extends State<ChatScreen>
       ],
     );
   }
+
 
   Widget _buildMessagesList() {
     return ListView.builder(
