@@ -14,32 +14,33 @@ class AppLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Make it reactive to theme changes
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      child: _buildLogo(context),
+    );
+  }
+
+  Widget _buildLogo(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
+    // Use a key to force rebuild when theme changes
+    final logoKey = ValueKey('logo_${isDarkMode ? 'dark' : 'light'}');
+
     Widget logoImage = Image.asset(
-      isDarkMode
-          ? 'assets/icons/app_icon_dark.png'
-          : 'assets/icons/app_icon.png',
+      'assets/icons/app_icon.png', // Use single logo for now
+      key: logoKey,
       width: size,
       height: size,
       fit: BoxFit.cover,
       errorBuilder: (context, error, stackTrace) {
-        // Fallback to single logo if dark version doesn't exist
-        return Image.asset(
-          'assets/icons/app_icon.png',
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            // Final fallback to gradient icon
-            return _buildFallbackIcon(context);
-          },
-        );
+        return _buildFallbackIcon(context);
       },
     );
 
     if (useGradientBackground) {
       return Container(
+        key: logoKey,
         width: size,
         height: size,
         decoration: BoxDecoration(
@@ -61,7 +62,7 @@ class AppLogo extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(size / 4),
           child: Padding(
-            padding: EdgeInsets.all(size * 0.15), // 15% padding
+            padding: EdgeInsets.all(size * 0.15),
             child: logoImage,
           ),
         ),
@@ -69,13 +70,14 @@ class AppLogo extends StatelessWidget {
     }
 
     return Container(
+      key: logoKey,
       width: size,
       height: size,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(size / 4),
         boxShadow: showShadow ? [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withOpacity(isDarkMode ? 0.3 : 0.1),
             blurRadius: size / 8,
             offset: Offset(0, size / 20),
           ),

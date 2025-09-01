@@ -35,20 +35,19 @@ class AgentXApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'AgentX',
+      title: 'Agent X Assistant',
       debugShowCheckedModeBanner: false,
 
-      // Apply our new professional theme
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
 
-      // Performance optimizations
+      // Replace textScaleFactor with textScaler
       builder: (context, child) {
         return MediaQuery(
           data: MediaQuery.of(context).copyWith(
             textScaler: TextScaler.linear(
-              MediaQuery.of(context).textScaleFactor.clamp(1.0, 1.3),
+              MediaQuery.of(context).textScaler.scale(1.0).clamp(1.0, 1.3),
             ),
           ),
           child: child!,
@@ -59,3 +58,4 @@ class AgentXApp extends StatelessWidget {
     );
   }
 }
+
