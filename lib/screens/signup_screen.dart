@@ -61,7 +61,9 @@ class _SignUpScreenState extends State<SignUpScreen>
     // Start animations
     _heroAnimationController.forward();
     Future.delayed(const Duration(milliseconds: 300), () {
-      _formAnimationController.forward();
+      if(mounted) { // Safe animation startup
+        _formAnimationController.forward();
+      }
     });
 
     // Add listeners for validation
