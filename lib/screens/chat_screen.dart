@@ -5,6 +5,7 @@ import '../widgets/enhanced_chat_bubble.dart';
 import '../models/chat_message.dart';
 import '../core/constants/app_constants.dart';
 import '../widgets/app_logo.dart';
+import '../core/agents/agent_orchestrator.dart';
 
 class ChatScreen extends StatefulWidget {
   final String profession;
@@ -293,10 +294,8 @@ class _ChatScreenState extends State<ChatScreen>
     final text = _controller.text.trim();
     if (text.isEmpty || _isTyping) return;
 
-    // Add haptic feedback
     HapticFeedback.lightImpact();
 
-    // Create user message
     final userMessage = ChatMessage(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       content: text,
@@ -313,22 +312,14 @@ class _ChatScreenState extends State<ChatScreen>
     _controller.clear();
     _scrollToBottom();
 
-    // Update message status to sent
-    setState(() {
-      final index = _messages.indexWhere((m) => m.id == userMessage.id);
-      if (index != -1) {
-        _messages[index] = userMessage.copyWith(status: MessageStatus.sent);
-      }
-    });
-
     try {
-      // Get AI response
-      final response = await ChatService.getChatResponse(text);
+      // Use the new orchestrator instead of ChatService
+      final orchestrator = AgentOrchestrator();
+      final agentResponse = await orchestrator.processRequest(text);
 
-      // Create assistant message
       final assistantMessage = ChatMessage(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        content: response,
+        content: agentResponse.response,
         type: MessageType.assistant,
         timestamp: DateTime.now(),
       );

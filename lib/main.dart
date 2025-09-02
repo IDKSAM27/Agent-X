@@ -4,7 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
-import 'core/widgets/auth_gate.dart'; // Add this import
+import 'core/widgets/auth_gate.dart';
+import 'core/agents/agent_orchestrator.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,9 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Initialize agent orchestrator
+  await AgentOrchestrator().initialize();
 
   runApp(const AgentXApp());
 }
