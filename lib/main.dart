@@ -35,7 +35,7 @@ class AgentXApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Agent X Assistant',
+      title: 'AgentX',
       debugShowCheckedModeBanner: false,
 
       theme: AppTheme.lightTheme,
