@@ -2,10 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../home_screen.dart';
 import '../screens/signup_screen.dart';
-import '../screens/profession_input_screen.dart';
+import '../widgets/app_logo.dart';
 import '../core/constants/app_constants.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -50,10 +48,12 @@ class _LoginScreenState extends State<LoginScreen>
       vsync: this,
     );
 
-    // Start animations
+    // Start animations with mounted checks
     _heroAnimationController.forward();
     Future.delayed(const Duration(milliseconds: 300), () {
-      _formAnimationController.forward();
+      if (mounted) { // Safe animation start, I hope at least
+        _formAnimationController.forward();
+      }
     });
 
     // Email validation listener
@@ -70,6 +70,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   void dispose() {
+    _emailController.removeListener(_validateEmail);
     _emailController.dispose();
     _passwordController.dispose();
     _emailFocusNode.dispose();
@@ -123,7 +124,7 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _buildHeroSection() {
     return Column(
       children: [
-        // Agent-X Logo with the animation intact
+        // Logo with animation
         AnimatedBuilder(
           animation: _heroAnimationController,
           builder: (context, child) {
@@ -134,56 +135,10 @@ class _LoginScreenState extends State<LoginScreen>
                 curve: const Interval(0.0, 0.6, curve: Curves.elasticOut),
               ))
                   .value,
-              child: Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusXL),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusXL),
-                  child: Image.asset(
-                    'assets/icons/app_icon.png',
-                    width: 88,
-                    height: 88,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      // Fallback to the original icon if image fails to load
-                      return Container(
-                        width: 88,
-                        height: 88,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              Theme.of(context).colorScheme.primary,
-                              Theme.of(context).colorScheme.secondary,
-                            ],
-                          ),
-                          borderRadius: BorderRadius.circular(AppConstants.radiusXL),
-                        ),
-                        child: const Icon(
-                          Icons.smart_toy_rounded,
-                          size: 44,
-                          color: Colors.white,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
+              child: const AppLogo(size: 88, showShadow: true),
             );
           },
         )
-
             .animate(delay: 200.ms)
             .shimmer(duration: 1000.ms)
             .then()
@@ -193,10 +148,10 @@ class _LoginScreenState extends State<LoginScreen>
 
         // Title and Subtitle
         Text(
-          'Welcome to AgentX',
+          'Welcome Back',
           style: Theme.of(context).textTheme.displayMedium?.copyWith(
             color: Theme.of(context).colorScheme.onSurface,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w800,
           ),
           textAlign: TextAlign.center,
         )
@@ -207,7 +162,7 @@ class _LoginScreenState extends State<LoginScreen>
         const SizedBox(height: AppConstants.spacingS),
 
         Text(
-          'Sign in to continue',
+          'Sign in to continue to Agent X',
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
@@ -465,7 +420,7 @@ class _LoginScreenState extends State<LoginScreen>
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
-    _loadingController.repeat();
+    if (mounted) _loadingController.repeat();
 
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -474,7 +429,7 @@ class _LoginScreenState extends State<LoginScreen>
       );
 
       if (mounted) {
-        await _navigateToHome();
+        _showSuccessSnackBar('Welcome back!');
       }
     } on FirebaseAuthException catch (e) {
       if (mounted) {
@@ -494,7 +449,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
-    _loadingController.repeat();
+    if (mounted) _loadingController.repeat();
 
     try {
       final googleUser = await GoogleSignIn().signIn();
@@ -513,7 +468,7 @@ class _LoginScreenState extends State<LoginScreen>
       await FirebaseAuth.instance.signInWithCredential(credential);
 
       if (mounted) {
-        await _navigateToHome();
+        _showSuccessSnackBar('Welcome back!');
       }
     } catch (e) {
       if (mounted) {
@@ -584,7 +539,7 @@ class _LoginScreenState extends State<LoginScreen>
       SnackBar(
         content: Row(
           children: [
-            Icon(
+            const Icon(
               Icons.check_circle_outline,
               color: Colors.white,
               size: 20,
@@ -611,13 +566,4 @@ class _LoginScreenState extends State<LoginScreen>
       ),
     );
   }
-
-  Future<void> _navigateToHome() async {
-    // Show success message
-    _showSuccessSnackBar('Welcome back!');
-
-    // The AuthGate will automatically handle navigation
-    // based on auth state changes, so we don't need to navigate manually
-  }
-
 }

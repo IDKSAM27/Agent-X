@@ -31,6 +31,10 @@ dependencies:
   cached_network_image: ^3.3.0
   shimmer: ^3.0.0
   flutter_animate: ^4.2.0
+  dio: ^5.3.2
+  flutter_riverpod: ^2.4.9 # I may remove this, I already use Bloc for animation
+  json_annotation: ^4.8.1
+  logger: ^2.0.2+1
 
 dev_dependencies:
   flutter_test:
@@ -39,6 +43,7 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
   injectable_generator: ^2.4.1
   build_runner: ^2.4.7
+  json_serializable: ^6.7.1
 
 flutter:
   uses-material-design: true
