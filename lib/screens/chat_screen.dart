@@ -178,74 +178,62 @@ class _ChatScreenState extends State<ChatScreen>
     return AnimatedBuilder(
       animation: _inputController,
       builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, 50 * (1 - _inputController.value)),
-          child: Opacity(
-            opacity: _inputController.value,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
+        return Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
+          padding: EdgeInsets.fromLTRB(
+            AppConstants.spacingM,
+            AppConstants.spacingM,
+            AppConstants.spacingM,
+            AppConstants.spacingM,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200), // Faster transition
+                  constraints: const BoxConstraints(maxHeight: 120),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(24),
                   ),
-                ],
-              ),
-              padding: EdgeInsets.fromLTRB(
-                AppConstants.spacingM,
-                AppConstants.spacingM,
-                AppConstants.spacingM,
-                MediaQuery.of(context).viewInsets.bottom > 0
-                    ? AppConstants.spacingM
-                    : AppConstants.spacingM + MediaQuery.of(context).padding.bottom,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Container(
-                      constraints: const BoxConstraints(maxHeight: 120),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-                        ),
-                      ),
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        maxLines: null,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: InputDecoration(
-                          hintText: 'Ask me anything...',
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 16,
-                          ),
-                          hintStyle: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.6),
-                          ),
-                        ),
-                        style: Theme.of(context).textTheme.bodyMedium,
-                        enabled: !_isTyping,
-                        onSubmitted: (_) => _sendMessage(),
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    maxLines: null,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      hintText: 'Ask me anything...',
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
                       ),
                     ),
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    enabled: !_isTyping,
+                    onSubmitted: (_) => _sendMessage(),
                   ),
-                  const SizedBox(width: AppConstants.spacingS),
-                  _buildSendButton(),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: AppConstants.spacingS),
+              _buildSendButton(),
+            ],
           ),
         );
       },
     );
   }
+
 
   Widget _buildSendButton() {
     return AnimatedBuilder(
