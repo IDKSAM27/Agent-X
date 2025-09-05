@@ -10,6 +10,7 @@ class ChatMessage extends Equatable {
   final DateTime timestamp;
   final MessageStatus status;
   final bool isTyping;
+  final Map<String, dynamic>? metadata; // Add metadata field
 
   const ChatMessage({
     required this.id,
@@ -18,6 +19,7 @@ class ChatMessage extends Equatable {
     required this.timestamp,
     this.status = MessageStatus.sent,
     this.isTyping = false,
+    this.metadata, // Add metadata parameter
   });
 
   ChatMessage copyWith({
@@ -27,6 +29,7 @@ class ChatMessage extends Equatable {
     DateTime? timestamp,
     MessageStatus? status,
     bool? isTyping,
+    Map<String, dynamic>? metadata,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -35,9 +38,10 @@ class ChatMessage extends Equatable {
       timestamp: timestamp ?? this.timestamp,
       status: status ?? this.status,
       isTyping: isTyping ?? this.isTyping,
+      metadata: metadata ?? this.metadata, // Include in copyWith
     );
   }
 
   @override
-  List<Object?> get props => [id, content, type, timestamp, status, isTyping];
+  List<Object?> get props => [id, content, type, timestamp, status, isTyping, metadata];
 }

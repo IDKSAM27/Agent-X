@@ -3,7 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../models/chat_message.dart';
 import '../core/constants/app_constants.dart';
 import 'typing_indicator.dart';
-import '../widgets/app_logo.dart';
+import 'calendar_response_card.dart';
 
 class EnhancedChatBubble extends StatelessWidget {
   final ChatMessage message;
@@ -51,7 +51,7 @@ class EnhancedChatBubble extends StatelessWidget {
                     : null,
                 color: isUser
                     ? null
-                    : Theme.of(context).colorScheme.surfaceVariant,
+                    : Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(AppConstants.radiusL),
                   topRight: const Radius.circular(AppConstants.radiusL),
@@ -72,7 +72,7 @@ class EnhancedChatBubble extends StatelessWidget {
                   if (message.isTyping)
                     const TypingIndicator()
                   else
-                    _buildMessageContent(context, isUser),
+                    _buildMessageContent(context, isUser), // Fixed method
 
                   _buildMessageFooter(context, isUser),
                 ],
@@ -91,10 +91,30 @@ class EnhancedChatBubble extends StatelessWidget {
   }
 
   Widget _buildAvatar(BuildContext context) {
-    return const AppLogo(
-      size: 32,
-      showShadow: true,
-      useGradientBackground: true, // Use gradient background for chat avatar
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Theme.of(context).colorScheme.secondary,
+            Theme.of(context).colorScheme.tertiary,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.secondary.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: const Icon(
+        Icons.smart_toy_rounded,
+        size: 18,
+        color: Colors.white,
+      ),
     );
   }
 
@@ -118,33 +138,31 @@ class EnhancedChatBubble extends StatelessWidget {
     );
   }
 
+  // Fixed message content method with calendar support
   Widget _buildMessageContent(BuildContext context, bool isUser) {
-    if (!isUser && message.type == MessageType.assistant) {
-      // Check if this is a calendar response
-      if (message.metadata?['type'] == 'calendar') {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppConstants.spacingM,
-                AppConstants.spacingM,
-                AppConstants.spacingM,
-                AppConstants.spacingS,
-              ),
-              child: SelectableText(
-                message.content,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  height: 1.4,
-                ),
+    if (!isUser && message.metadata != null && message.metadata!['type'] == 'calendar') {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppConstants.spacingM,
+              AppConstants.spacingM,
+              AppConstants.spacingM,
+              AppConstants.spacingS,
+            ),
+            child: SelectableText(
+              message.content,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.4,
               ),
             ),
-            if (message.metadata?['show_calendar'] == true)
-              CalendarResponseCard(metadata: message.metadata ?? {}),
-          ],
-        );
-      }
+          ),
+          if (message.metadata!['show_calendar'] == true)
+            CalendarResponseCard(metadata: message.metadata!), // Now works, it was a bitchful of debugging
+        ],
+      );
     }
 
     // Default text content
@@ -166,7 +184,6 @@ class EnhancedChatBubble extends StatelessWidget {
       ),
     );
   }
-
 
   Widget _buildMessageFooter(BuildContext context, bool isUser) {
     return Padding(

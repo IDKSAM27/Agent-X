@@ -1,8 +1,42 @@
-import json
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from datetime import datetime, timedelta
+from typing import Dict, Any, Optional, List
 import re
-from typing import Dict, List, Optional
+import uvicorn
 
+app = FastAPI(
+    title="Agent X Backend",
+    description="Multi-Agent AI Orchestration System",
+    version="1.0.0"
+)
+
+# CORS middleware for Flutter app
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure properly for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Define Pydantic models (this fixes the unresolved reference errors)
+class AgentRequest(BaseModel):
+    message: str
+    user_id: str
+    context: Dict[str, Any]
+    timestamp: str
+
+class AgentResponse(BaseModel):
+    agent_name: str
+    response: str
+    type: str
+    metadata: Dict[str, Any] = {}
+    requires_follow_up: bool = False
+    suggested_actions: Optional[List[str]] = None
+
+# Enhanced Calendar Agent
 class EnhancedCalendarAgent:
     def __init__(self):
         self.events = []  # In-memory storage for demo
@@ -21,14 +55,10 @@ class EnhancedCalendarAgent:
             return await self.general_calendar_help(request)
 
     async def create_event(self, request: AgentRequest) -> AgentResponse:
-        # Extract event details from natural language
         message = request.message.lower()
-
-        # Simple event extraction (can be enhanced with NLP)
         event_data = self.extract_event_data(message)
 
         if event_data:
-            # Create event
             event_id = f"event_{len(self.events) + 1}"
             event = {
                 'id': event_id,
@@ -72,9 +102,8 @@ class EnhancedCalendarAgent:
                 suggested_actions=["Schedule a meeting", "Add personal event", "Set reminder"]
             )
 
-        # Format events for display
         events_text = "📅 Your upcoming events:\n\n"
-        for event in self.events[-5:]:  # Show last 5 events
+        for event in self.events[-5:]:
             events_text += f"• **{event['title']}**\n  {event['date']} at {event['time']}\n\n"
 
         return AgentResponse(
@@ -89,13 +118,11 @@ class EnhancedCalendarAgent:
             suggested_actions=["Create new event", "Modify event", "Check availability"]
         )
 
-    async def check_availability(self, request: AgentResponse) -> AgentResponse:
-        # Simple availability check
+    async def check_availability(self, request: AgentRequest) -> AgentResponse:
         today = datetime.now()
         available_slots = []
 
-        # Generate some available time slots
-        for i in range(1, 8):  # Next 7 days
+        for i in range(1, 8):
             date = (today + timedelta(days=i)).strftime('%Y-%m-%d')
             available_slots.extend([
                 f"{date} at 9:00 AM",
@@ -104,7 +131,7 @@ class EnhancedCalendarAgent:
             ])
 
         response_text = "🕒 You have availability on:\n\n"
-        for slot in available_slots[:6]:  # Show first 6 slots
+        for slot in available_slots[:6]:
             response_text += f"• {slot}\n"
 
         return AgentResponse(
@@ -128,10 +155,9 @@ class EnhancedCalendarAgent:
         )
 
     def extract_event_data(self, message: str) -> Optional[Dict]:
-        """Extract event details from natural language"""
         event_data = {}
 
-        # Extract common event titles
+        # Extract event titles
         meeting_patterns = [
             r'meeting with (\w+)',
             r'call with (\w+)',
@@ -162,23 +188,14 @@ class EnhancedCalendarAgent:
                 break
 
         # Extract date patterns
-        date_patterns = [
-            r'tomorrow',
-            r'next week',
-            r'monday|tuesday|wednesday|thursday|friday|saturday|sunday',
-        ]
-
-        for pattern in date_patterns:
-            if re.search(pattern, message):
-                if pattern == 'tomorrow':
-                    event_data['date'] = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
-                elif pattern == 'next week':
-                    event_data['date'] = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
-                break
+        if 'tomorrow' in message:
+            event_data['date'] = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+        elif 'next week' in message:
+            event_data['date'] = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
 
         return event_data if event_data else None
 
-# Update the orchestrator to use enhanced calendar agent
+# Simple orchestrator with enhanced calendar agent
 class SimpleOrchestrator:
     def __init__(self):
         self.calendar_agent = EnhancedCalendarAgent()
@@ -188,8 +205,75 @@ class SimpleOrchestrator:
             'email': 'EmailAgent',
         }
 
-    # ... existing methods ...
+    async def classify_intent(self, message: str) -> str:
+        message_lower = message.lower()
 
-    async def handle_calendar(self, request: AgentRequest) -> AgentResponse:
-        """Enhanced calendar handling"""
-        return await self.calendar_agent.process(request)
+        if any(word in message_lower for word in ['schedule', 'meeting', 'calendar', 'appointment', 'book']):
+            return 'calendar'
+        elif any(word in message_lower for word in ['email', 'mail', 'send', 'compose', 'inbox']):
+            return 'email'
+        else:
+            return 'chat'
+
+    async def process_request(self, request: AgentRequest) -> AgentResponse:
+        intent = await self.classify_intent(request.message)
+
+        if intent == 'chat':
+            return await self.handle_chat(request)
+        elif intent == 'calendar':
+            return await self.calendar_agent.process(request)
+        elif intent == 'email':
+            return await self.handle_email(request)
+        else:
+            return await self.handle_chat(request)
+
+    async def handle_chat(self, request: AgentRequest) -> AgentResponse:
+        return AgentResponse(
+            agent_name="ChatAgent",
+            response=f"Hello! You said: '{request.message}'. I'm your AI assistant and I'm here to help with various tasks including scheduling, emails, and general conversation.",
+            type="text",
+            metadata={"intent": "chat"},
+            suggested_actions=["Ask about schedule", "Check emails", "Plan your day"]
+        )
+
+    async def handle_email(self, request: AgentRequest) -> AgentResponse:
+        return AgentResponse(
+            agent_name="EmailAgent",
+            response=f"I can help you with email management. You mentioned: '{request.message}'. I can sort emails, compose messages, and manage your inbox.",
+            type="email",
+            metadata={"intent": "email", "action_needed": "email_management"},
+            requires_follow_up=True,
+            suggested_actions=["Check inbox", "Compose email", "Sort by priority"]
+        )
+
+# Initialize orchestrator
+orchestrator = SimpleOrchestrator()
+
+# API Routes
+@app.get("/api/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+@app.post("/api/agents/process", response_model=AgentResponse)
+async def process_agent_request(request: AgentRequest):
+    try:
+        response = await orchestrator.process_request(request)
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/agents")
+async def get_agents():
+    return {
+        "agents": list(orchestrator.agents.keys()),
+        "total": len(orchestrator.agents)
+    }
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )

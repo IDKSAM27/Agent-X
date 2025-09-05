@@ -330,15 +330,16 @@ class _ChatScreenState extends State<ChatScreen>
     _scrollToBottom();
 
     try {
-      // Use the new orchestrator instead of ChatService
       final orchestrator = AgentOrchestrator();
       final agentResponse = await orchestrator.processRequest(text);
 
+      // Create assistant message with metadata
       final assistantMessage = ChatMessage(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         content: agentResponse.response,
         type: MessageType.assistant,
         timestamp: DateTime.now(),
+        metadata: agentResponse.metadata, // Include metadata from API response
       );
 
       setState(() {
@@ -360,6 +361,7 @@ class _ChatScreenState extends State<ChatScreen>
       _showErrorMessage('Failed to send message. Please try again.');
     }
   }
+
 
   void _retryMessage(ChatMessage message) {
     // Implementation for retry functionality
