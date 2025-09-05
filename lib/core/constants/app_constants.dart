@@ -7,9 +7,10 @@ class AppConstants {
   static const String appDescription = 'Your intelligent personal assistant';
 
   // Animation Durations
-  static const Duration fastAnimation = Duration(milliseconds: 200);
-  static const Duration normalAnimation = Duration(milliseconds: 300);
-  static const Duration slowAnimation = Duration(milliseconds: 500);
+  static const Duration fastAnimation = Duration(milliseconds: 150);
+  static const Duration normalAnimation = Duration(milliseconds: 250);
+  static const Duration slowAnimation = Duration(milliseconds: 350);
+  static const Duration keyboardAnimation = Duration(milliseconds: 200);
 
   // Spacing
   static const double spacingXS = 4.0;
