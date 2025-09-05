@@ -5,7 +5,6 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import re
 import uvicorn
-from memory_manager import memory_manager
 
 app = FastAPI(
     title="Agent X Backend",
@@ -37,15 +36,14 @@ class AgentResponse(BaseModel):
     requires_follow_up: bool = False
     suggested_actions: Optional[List[str]] = None
 
-# Complete Enhanced Calendar Agent with all methods
+# Complete Enhanced Calendar Agent
 class EnhancedCalendarAgent:
     def __init__(self):
-        self.events = []  # In-memory storage for demo
+        self.events = []
 
     async def process(self, request: AgentRequest) -> AgentResponse:
         message = request.message.lower()
 
-        # Parse different calendar intents including deletion
         if any(word in message for word in ['schedule', 'book', 'create', 'add']):
             return await self.create_event(request)
         elif any(word in message for word in ['delete', 'cancel', 'remove', 'clear']):
@@ -57,7 +55,6 @@ class EnhancedCalendarAgent:
         else:
             return await self.general_calendar_help(request)
 
-    # CREATE EVENT METHOD
     async def create_event(self, request: AgentRequest) -> AgentResponse:
         message = request.message.lower()
         event_data = self.extract_event_data(message)
@@ -96,7 +93,6 @@ class EnhancedCalendarAgent:
                 suggested_actions=["Schedule meeting with John tomorrow 3 PM", "Book dentist appointment next week"]
             )
 
-    # LIST EVENTS METHOD
     async def list_events(self, request: AgentRequest) -> AgentResponse:
         if not self.events:
             return AgentResponse(
@@ -123,7 +119,6 @@ class EnhancedCalendarAgent:
             suggested_actions=["Create new event", "Modify event", "Check availability"]
         )
 
-    # CHECK AVAILABILITY METHOD
     async def check_availability(self, request: AgentRequest) -> AgentResponse:
         today = datetime.now()
         available_slots = []
@@ -151,7 +146,6 @@ class EnhancedCalendarAgent:
             suggested_actions=["Schedule meeting for [time]", "Check next week", "Block time slot"]
         )
 
-    # DELETE EVENT METHOD (NEW)
     async def delete_event(self, request: AgentRequest) -> AgentResponse:
         message = request.message.lower()
 
@@ -166,41 +160,17 @@ class EnhancedCalendarAgent:
 
         deleted_events = []
 
-        # Simple deletion patterns
         if 'all' in message or 'everything' in message:
             deleted_events = self.events.copy()
             self.events.clear()
             response_text = f"🗑️ Deleted all {len(deleted_events)} events from your calendar."
-
         elif 'tomorrow' in message:
             tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
             events_to_delete = [event for event in self.events if event['date'] == tomorrow]
-
             for event in events_to_delete:
                 self.events.remove(event)
                 deleted_events.append(event)
-
-            if deleted_events:
-                response_text = f"🗑️ Deleted {len(deleted_events)} event(s) for tomorrow:\n\n"
-                for event in deleted_events:
-                    response_text += f"• {event['title']} at {event['time']}\n"
-            else:
-                response_text = "❌ No events found for tomorrow to delete."
-
-        elif 'today' in message:
-            today = datetime.now().strftime('%Y-%m-%d')
-            events_to_delete = [event for event in self.events if event['date'] == today]
-
-            for event in events_to_delete:
-                self.events.remove(event)
-                deleted_events.append(event)
-
-            if deleted_events:
-                response_text = f"🗑️ Deleted {len(deleted_events)} event(s) for today:\n\n"
-                for event in deleted_events:
-                    response_text += f"• {event['title']} at {event['time']}\n"
-            else:
-                response_text = "❌ No events found for today to delete."
+            response_text = f"🗑️ Deleted {len(deleted_events)} event(s) for tomorrow." if deleted_events else "❌ No events found for tomorrow."
         else:
             response_text = "❓ What would you like to delete? You can say:\n\n• 'Delete all events'\n• 'Cancel tomorrow's meetings'\n• 'Delete today's appointments'"
 
@@ -217,21 +187,18 @@ class EnhancedCalendarAgent:
             suggested_actions=["View remaining events", "Schedule new event"] if deleted_events else ["View my calendar", "Schedule a meeting"]
         )
 
-    # GENERAL HELP METHOD
     async def general_calendar_help(self, request: AgentRequest) -> AgentResponse:
         return AgentResponse(
             agent_name="CalendarAgent",
-            response="📅 I can help you manage your calendar! I can:\n\n• **Schedule events** - 'Schedule meeting with John tomorrow 3 PM'\n• **View your calendar** - 'What's my schedule today?'\n• **Delete events** - 'Delete all my events' or 'Cancel tomorrow's meetings'\n• **Check availability** - 'When am I free this week?'\n• **Set reminders** - 'Remind me about the presentation'\n\nWhat would you like to do?",
+            response="📅 I can help you manage your calendar! I can:\n\n• **Schedule events** - 'Schedule meeting with John tomorrow 3 PM'\n• **View your calendar** - 'What's my schedule today?'\n• **Delete events** - 'Delete all my events'\n• **Check availability** - 'When am I free this week?'\n\nWhat would you like to do?",
             type="calendar",
             metadata={"action": "help"},
             suggested_actions=["Schedule a meeting", "View my calendar", "Delete an event", "Check availability"]
         )
 
-    # EVENT DATA EXTRACTION METHOD
     def extract_event_data(self, message: str) -> Optional[Dict]:
         event_data = {}
 
-        # Extract event titles
         meeting_patterns = [
             r'meeting with (\w+)',
             r'call with (\w+)',
@@ -245,23 +212,6 @@ class EnhancedCalendarAgent:
                 event_data['title'] = f"Meeting with {match.group(1).title()}" if 'meeting' in pattern else f"{match.group(1).title()} Appointment"
                 break
 
-        # Extract time patterns
-        time_patterns = [
-            r'(\d{1,2}):(\d{2})\s*(am|pm)',
-            r'(\d{1,2})\s*(am|pm)',
-            r'at (\d{1,2})',
-        ]
-
-        for pattern in time_patterns:
-            match = re.search(pattern, message)
-            if match:
-                if 'am' in pattern or 'pm' in pattern:
-                    event_data['time'] = match.group(0)
-                else:
-                    event_data['time'] = f"{match.group(1)}:00"
-                break
-
-        # Extract date patterns
         if 'tomorrow' in message:
             event_data['date'] = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
         elif 'next week' in message:
@@ -269,49 +219,60 @@ class EnhancedCalendarAgent:
 
         return event_data if event_data else None
 
-# ORCHESTRATOR WITH ENHANCED CALENDAR AGENT
-# Update the orchestrator to use memory
+# COMPLETE ORCHESTRATOR WITH ALL METHODS DEFINED
 class SimpleOrchestrator:
     def __init__(self):
         self.calendar_agent = EnhancedCalendarAgent()
-        self.memory = memory_manager
-        # ... rest of initialization
+        self.agents = {  # ✅ This property was missing
+            'chat': 'ChatAgent',
+            'calendar': 'CalendarAgent',
+            'email': 'EmailAgent',
+        }
 
+    # CLASSIFY INTENT METHOD
+    async def classify_intent(self, message: str) -> str:
+        message_lower = message.lower()
+
+        if any(word in message_lower for word in ['schedule', 'meeting', 'calendar', 'appointment', 'book', 'delete', 'cancel', 'remove']):
+            return 'calendar'
+        elif any(word in message_lower for word in ['email', 'mail', 'send', 'compose', 'inbox']):
+            return 'email'
+        else:
+            return 'chat'
+
+    # PROCESS REQUEST METHOD
     async def process_request(self, request: AgentRequest) -> AgentResponse:
-        # Get user context from memory
-        user_context = await self.memory.get_user_context(request.user_id)
-
-        # Add context to request
-        enhanced_request = AgentRequest(
-            message=request.message,
-            user_id=request.user_id,
-            context={**request.context, "user_history": user_context},
-            timestamp=request.timestamp
-        )
-
         intent = await self.classify_intent(request.message)
 
         if intent == 'chat':
-            response = await self.handle_chat(enhanced_request)
+            return await self.handle_chat(request)
         elif intent == 'calendar':
-            response = await self.calendar_agent.process(enhanced_request)
+            return await self.calendar_agent.process(request)
         elif intent == 'email':
-            response = await self.handle_email(enhanced_request)
+            return await self.handle_email(request)
         else:
-            response = await self.handle_chat(enhanced_request)
+            return await self.handle_chat(request)
 
-        # Store conversation in memory
-        await self.memory.store_conversation(
-            user_id=request.user_id,
-            message_id=f"{request.user_id}_{datetime.now().timestamp()}",
-            user_message=request.message,
-            agent_response=response.response,
-            agent_name=response.agent_name,
-            metadata=response.metadata
+    # HANDLE CHAT METHOD
+    async def handle_chat(self, request: AgentRequest) -> AgentResponse:
+        return AgentResponse(
+            agent_name="ChatAgent",
+            response=f"Hello! You said: '{request.message}'. I'm your AI assistant and I'm here to help with various tasks including scheduling, emails, and general conversation.",
+            type="text",
+            metadata={"intent": "chat"},
+            suggested_actions=["Ask about schedule", "Check emails", "Plan your day"]
         )
 
-        return response
-
+    # HANDLE EMAIL METHOD
+    async def handle_email(self, request: AgentRequest) -> AgentResponse:
+        return AgentResponse(
+            agent_name="EmailAgent",
+            response=f"I can help you with email management. You mentioned: '{request.message}'. I can sort emails, compose messages, and manage your inbox.",
+            type="email",
+            metadata={"intent": "email", "action_needed": "email_management"},
+            requires_follow_up=True,
+            suggested_actions=["Check inbox", "Compose email", "Sort by priority"]
+        )
 
 # Initialize orchestrator
 orchestrator = SimpleOrchestrator()
