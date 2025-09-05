@@ -119,6 +119,35 @@ class EnhancedChatBubble extends StatelessWidget {
   }
 
   Widget _buildMessageContent(BuildContext context, bool isUser) {
+    if (!isUser && message.type == MessageType.assistant) {
+      // Check if this is a calendar response
+      if (message.metadata?['type'] == 'calendar') {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppConstants.spacingM,
+                AppConstants.spacingM,
+                AppConstants.spacingM,
+                AppConstants.spacingS,
+              ),
+              child: SelectableText(
+                message.content,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+            ),
+            if (message.metadata?['show_calendar'] == true)
+              CalendarResponseCard(metadata: message.metadata ?? {}),
+          ],
+        );
+      }
+    }
+
+    // Default text content
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppConstants.spacingM,
@@ -137,6 +166,7 @@ class EnhancedChatBubble extends StatelessWidget {
       ),
     );
   }
+
 
   Widget _buildMessageFooter(BuildContext context, bool isUser) {
     return Padding(
