@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../services/chat_service.dart';
 import '../widgets/enhanced_chat_bubble.dart';
 import '../models/chat_message.dart';
 import '../core/constants/app_constants.dart';
@@ -87,15 +86,68 @@ class _ChatScreenState extends State<ChatScreen>
 
   @override
   Widget build(BuildContext context) {
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+    final isKeyboardVisible = keyboardHeight > 0;
+
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
+      resizeToAvoidBottomInset: true,
       appBar: _buildAppBar(),
       body: Column(
         children: [
+          // Messages List
           Expanded(
-            child: _buildMessagesList(),
+            child: RepaintBoundary(
+              child: ListView.builder(
+                controller: _scrollController,
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppConstants.spacingM,
+                  vertical: AppConstants.spacingS,
+                ),
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  final message = _messages[index];
+                  final showAvatar = index == _messages.length - 1 ||
+                      _messages[index + 1].type != message.type;
+
+                  return EnhancedChatBubble(
+                    message: message,
+                    showAvatar: showAvatar,
+                    onRetry: message.status == MessageStatus.failed
+                        ? () => _retryMessage(message)
+                        : null,
+                  );
+                },
+              ),
+            ),
           ),
-          _buildInputSection(),
+
+          // Input Section - Optimized for Performance
+          RepaintBoundary(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, -2),
+                  ),
+                ],
+              ),
+              padding: EdgeInsets.fromLTRB(
+                AppConstants.spacingM,
+                AppConstants.spacingM,
+                AppConstants.spacingM,
+                // AppConstants.spacingM + keyboardHeight, // Direct keyboard handling
+                AppConstants.spacingM,
+              ),
+              child: _buildInputSection(isKeyboardVisible),
+            ),
+          ),
         ],
       ),
     );
@@ -174,119 +226,84 @@ class _ChatScreenState extends State<ChatScreen>
     );
   }
 
-  Widget _buildInputSection() {
-    return AnimatedBuilder(
-      animation: _inputController,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, 50 * (1 - _inputController.value)),
-          child: Opacity(
-            opacity: _inputController.value,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
+  Widget _buildInputSection(bool isKeyboardVisible) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150), // Faster for older devices
+            constraints: const BoxConstraints(maxHeight: 120),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: TextField(
+              controller: _controller,
+              focusNode: _focusNode,
+              maxLines: null,
+              keyboardType: TextInputType.multiline,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                hintText: 'Ask me anything...',
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
+                hintStyle: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.6),
+                ),
               ),
-              padding: EdgeInsets.fromLTRB(
-                AppConstants.spacingM,
-                AppConstants.spacingM,
-                AppConstants.spacingM,
-                MediaQuery.of(context).viewInsets.bottom > 0
-                    ? AppConstants.spacingM
-                    : AppConstants.spacingM + MediaQuery.of(context).padding.bottom,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Container(
-                      constraints: const BoxConstraints(maxHeight: 120),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-                        ),
-                      ),
-                      child: TextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        maxLines: null,
-                        textCapitalization: TextCapitalization.sentences,
-                        decoration: InputDecoration(
-                          hintText: 'Ask me anything...',
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 16,
-                          ),
-                          hintStyle: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.6),
-                          ),
-                        ),
-                        style: Theme.of(context).textTheme.bodyMedium,
-                        enabled: !_isTyping,
-                        onSubmitted: (_) => _sendMessage(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppConstants.spacingS),
-                  _buildSendButton(),
-                ],
-              ),
+              style: Theme.of(context).textTheme.bodyMedium,
+              enabled: !_isTyping,
+              onSubmitted: (_) => _sendMessage(),
             ),
           ),
-        );
-      },
+        ),
+
+        const SizedBox(width: AppConstants.spacingS),
+
+        _buildSendButton(),
+      ],
     );
   }
 
   Widget _buildSendButton() {
-    return AnimatedBuilder(
-      animation: _sendButtonController,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: 0.8 + (0.2 * _sendButtonController.value),
-          child: Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              gradient: _isTextEmpty || _isTyping
-                  ? null
-                  : LinearGradient(
-                colors: [
-                  Theme.of(context).colorScheme.primary,
-                  Theme.of(context).colorScheme.secondary,
-                ],
-              ),
-              color: _isTextEmpty || _isTyping
-                  ? Theme.of(context).colorScheme.outline.withOpacity(0.3)
-                  : null,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(24),
-                onTap: _isTextEmpty || _isTyping ? null : _sendMessage,
-                child: Icon(
-                  Icons.send_rounded,
-                  color: _isTextEmpty || _isTyping
-                      ? Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.5)
-                      : Colors.white,
-                  size: 20,
-                ),
-              ),
-            ),
+    final bool canSend = _controller.text.trim().isNotEmpty && !_isTyping;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        gradient: canSend
+            ? LinearGradient(
+          colors: [
+            Theme.of(context).colorScheme.primary,
+            Theme.of(context).colorScheme.secondary,
+          ],
+        )
+            : null,
+        color: canSend
+            ? null
+            : Theme.of(context).colorScheme.outline.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(24),
+          onTap: canSend ? _sendMessage : null,
+          child: Icon(
+            Icons.send_rounded,
+            color: canSend
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.5),
+            size: 20,
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -313,15 +330,16 @@ class _ChatScreenState extends State<ChatScreen>
     _scrollToBottom();
 
     try {
-      // Use the new orchestrator instead of ChatService
       final orchestrator = AgentOrchestrator();
       final agentResponse = await orchestrator.processRequest(text);
 
+      // Create assistant message with metadata
       final assistantMessage = ChatMessage(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         content: agentResponse.response,
         type: MessageType.assistant,
         timestamp: DateTime.now(),
+        metadata: agentResponse.metadata, // Include metadata from API response
       );
 
       setState(() {
@@ -343,6 +361,7 @@ class _ChatScreenState extends State<ChatScreen>
       _showErrorMessage('Failed to send message. Please try again.');
     }
   }
+
 
   void _retryMessage(ChatMessage message) {
     // Implementation for retry functionality
