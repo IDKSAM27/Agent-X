@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -21,7 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Define Pydantic models (this fixes the unresolved reference errors)
+# Pydantic models
 class AgentRequest(BaseModel):
     message: str
     user_id: str
@@ -36,7 +36,7 @@ class AgentResponse(BaseModel):
     requires_follow_up: bool = False
     suggested_actions: Optional[List[str]] = None
 
-# Enhanced Calendar Agent
+# Complete Enhanced Calendar Agent with all methods
 class EnhancedCalendarAgent:
     def __init__(self):
         self.events = []  # In-memory storage for demo
@@ -44,9 +44,11 @@ class EnhancedCalendarAgent:
     async def process(self, request: AgentRequest) -> AgentResponse:
         message = request.message.lower()
 
-        # Parse different calendar intents
+        # Parse different calendar intents including deletion
         if any(word in message for word in ['schedule', 'book', 'create', 'add']):
             return await self.create_event(request)
+        elif any(word in message for word in ['delete', 'cancel', 'remove', 'clear']):
+            return await self.delete_event(request)
         elif any(word in message for word in ['show', 'list', 'view', 'what']):
             return await self.list_events(request)
         elif any(word in message for word in ['free', 'available', 'busy']):
@@ -54,6 +56,7 @@ class EnhancedCalendarAgent:
         else:
             return await self.general_calendar_help(request)
 
+    # CREATE EVENT METHOD
     async def create_event(self, request: AgentRequest) -> AgentResponse:
         message = request.message.lower()
         event_data = self.extract_event_data(message)
@@ -92,6 +95,7 @@ class EnhancedCalendarAgent:
                 suggested_actions=["Schedule meeting with John tomorrow 3 PM", "Book dentist appointment next week"]
             )
 
+    # LIST EVENTS METHOD
     async def list_events(self, request: AgentRequest) -> AgentResponse:
         if not self.events:
             return AgentResponse(
@@ -118,6 +122,7 @@ class EnhancedCalendarAgent:
             suggested_actions=["Create new event", "Modify event", "Check availability"]
         )
 
+    # CHECK AVAILABILITY METHOD
     async def check_availability(self, request: AgentRequest) -> AgentResponse:
         today = datetime.now()
         available_slots = []
@@ -145,15 +150,83 @@ class EnhancedCalendarAgent:
             suggested_actions=["Schedule meeting for [time]", "Check next week", "Block time slot"]
         )
 
+    # DELETE EVENT METHOD (NEW)
+    async def delete_event(self, request: AgentRequest) -> AgentResponse:
+        message = request.message.lower()
+
+        if not self.events:
+            return AgentResponse(
+                agent_name="CalendarAgent",
+                response="📅 You don't have any events to delete. Your calendar is already empty!",
+                type="calendar",
+                metadata={"action": "no_events_to_delete"},
+                suggested_actions=["Schedule a meeting", "View calendar", "Check availability"]
+            )
+
+        deleted_events = []
+
+        # Simple deletion patterns
+        if 'all' in message or 'everything' in message:
+            deleted_events = self.events.copy()
+            self.events.clear()
+            response_text = f"🗑️ Deleted all {len(deleted_events)} events from your calendar."
+
+        elif 'tomorrow' in message:
+            tomorrow = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+            events_to_delete = [event for event in self.events if event['date'] == tomorrow]
+
+            for event in events_to_delete:
+                self.events.remove(event)
+                deleted_events.append(event)
+
+            if deleted_events:
+                response_text = f"🗑️ Deleted {len(deleted_events)} event(s) for tomorrow:\n\n"
+                for event in deleted_events:
+                    response_text += f"• {event['title']} at {event['time']}\n"
+            else:
+                response_text = "❌ No events found for tomorrow to delete."
+
+        elif 'today' in message:
+            today = datetime.now().strftime('%Y-%m-%d')
+            events_to_delete = [event for event in self.events if event['date'] == today]
+
+            for event in events_to_delete:
+                self.events.remove(event)
+                deleted_events.append(event)
+
+            if deleted_events:
+                response_text = f"🗑️ Deleted {len(deleted_events)} event(s) for today:\n\n"
+                for event in deleted_events:
+                    response_text += f"• {event['title']} at {event['time']}\n"
+            else:
+                response_text = "❌ No events found for today to delete."
+        else:
+            response_text = "❓ What would you like to delete? You can say:\n\n• 'Delete all events'\n• 'Cancel tomorrow's meetings'\n• 'Delete today's appointments'"
+
+        return AgentResponse(
+            agent_name="CalendarAgent",
+            response=response_text,
+            type="calendar",
+            metadata={
+                "action": "events_deleted" if deleted_events else "delete_failed",
+                "deleted_events": deleted_events,
+                "remaining_events": len(self.events),
+                "show_calendar": True
+            },
+            suggested_actions=["View remaining events", "Schedule new event"] if deleted_events else ["View my calendar", "Schedule a meeting"]
+        )
+
+    # GENERAL HELP METHOD
     async def general_calendar_help(self, request: AgentRequest) -> AgentResponse:
         return AgentResponse(
             agent_name="CalendarAgent",
-            response="📅 I can help you manage your calendar! I can:\n\n• **Schedule events** - 'Schedule meeting with John tomorrow 3 PM'\n• **View your calendar** - 'What's my schedule today?'\n• **Check availability** - 'When am I free this week?'\n• **Set reminders** - 'Remind me about the presentation'\n\nWhat would you like to do?",
+            response="📅 I can help you manage your calendar! I can:\n\n• **Schedule events** - 'Schedule meeting with John tomorrow 3 PM'\n• **View your calendar** - 'What's my schedule today?'\n• **Delete events** - 'Delete all my events' or 'Cancel tomorrow's meetings'\n• **Check availability** - 'When am I free this week?'\n• **Set reminders** - 'Remind me about the presentation'\n\nWhat would you like to do?",
             type="calendar",
             metadata={"action": "help"},
-            suggested_actions=["Schedule a meeting", "View my calendar", "Check my availability"]
+            suggested_actions=["Schedule a meeting", "View my calendar", "Delete an event", "Check availability"]
         )
 
+    # EVENT DATA EXTRACTION METHOD
     def extract_event_data(self, message: str) -> Optional[Dict]:
         event_data = {}
 
@@ -195,7 +268,7 @@ class EnhancedCalendarAgent:
 
         return event_data if event_data else None
 
-# Simple orchestrator with enhanced calendar agent
+# ORCHESTRATOR WITH ENHANCED CALENDAR AGENT
 class SimpleOrchestrator:
     def __init__(self):
         self.calendar_agent = EnhancedCalendarAgent()
@@ -208,7 +281,7 @@ class SimpleOrchestrator:
     async def classify_intent(self, message: str) -> str:
         message_lower = message.lower()
 
-        if any(word in message_lower for word in ['schedule', 'meeting', 'calendar', 'appointment', 'book']):
+        if any(word in message_lower for word in ['schedule', 'meeting', 'calendar', 'appointment', 'book', 'delete', 'cancel', 'remove']):
             return 'calendar'
         elif any(word in message_lower for word in ['email', 'mail', 'send', 'compose', 'inbox']):
             return 'email'
