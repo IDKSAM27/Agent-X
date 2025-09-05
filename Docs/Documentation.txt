@@ -52,3 +52,25 @@ child: Image.asset(
 #TODO:
 
 Delete chat_bubble.dart once the enhanced version is usable and bug free.
+
+===========================================================================================================================
+
+To test the api's health:
+    # Test from bash
+    curl http://192.168.1.10:8000/api/health
+
+To check if the port 8000 is open:
+    # Check if port 8000 is open
+    sudo netstat -tlnp | grep 8000
+
+    # Allow port through firewall (if using ufw)
+    sudo ufw allow 8000
+
+===========================================================================================================================
+
+Currently supporting the following:
+    "Hello there" → Should route to ChatAgent
+
+    "Schedule a meeting" → Should route to CalendarAgent
+
+    "Check my emails" → Should route to EmailAgent
