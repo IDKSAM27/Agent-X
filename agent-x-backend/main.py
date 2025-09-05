@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import re
 import uvicorn
+from memory_manager import memory_manager
 
 app = FastAPI(
     title="Agent X Backend",
@@ -269,55 +270,48 @@ class EnhancedCalendarAgent:
         return event_data if event_data else None
 
 # ORCHESTRATOR WITH ENHANCED CALENDAR AGENT
+# Update the orchestrator to use memory
 class SimpleOrchestrator:
     def __init__(self):
         self.calendar_agent = EnhancedCalendarAgent()
-        self.agents = {
-            'chat': 'ChatAgent',
-            'calendar': 'CalendarAgent',
-            'email': 'EmailAgent',
-        }
-
-    async def classify_intent(self, message: str) -> str:
-        message_lower = message.lower()
-
-        if any(word in message_lower for word in ['schedule', 'meeting', 'calendar', 'appointment', 'book', 'delete', 'cancel', 'remove']):
-            return 'calendar'
-        elif any(word in message_lower for word in ['email', 'mail', 'send', 'compose', 'inbox']):
-            return 'email'
-        else:
-            return 'chat'
+        self.memory = memory_manager
+        # ... rest of initialization
 
     async def process_request(self, request: AgentRequest) -> AgentResponse:
+        # Get user context from memory
+        user_context = await self.memory.get_user_context(request.user_id)
+
+        # Add context to request
+        enhanced_request = AgentRequest(
+            message=request.message,
+            user_id=request.user_id,
+            context={**request.context, "user_history": user_context},
+            timestamp=request.timestamp
+        )
+
         intent = await self.classify_intent(request.message)
 
         if intent == 'chat':
-            return await self.handle_chat(request)
+            response = await self.handle_chat(enhanced_request)
         elif intent == 'calendar':
-            return await self.calendar_agent.process(request)
+            response = await self.calendar_agent.process(enhanced_request)
         elif intent == 'email':
-            return await self.handle_email(request)
+            response = await self.handle_email(enhanced_request)
         else:
-            return await self.handle_chat(request)
+            response = await self.handle_chat(enhanced_request)
 
-    async def handle_chat(self, request: AgentRequest) -> AgentResponse:
-        return AgentResponse(
-            agent_name="ChatAgent",
-            response=f"Hello! You said: '{request.message}'. I'm your AI assistant and I'm here to help with various tasks including scheduling, emails, and general conversation.",
-            type="text",
-            metadata={"intent": "chat"},
-            suggested_actions=["Ask about schedule", "Check emails", "Plan your day"]
+        # Store conversation in memory
+        await self.memory.store_conversation(
+            user_id=request.user_id,
+            message_id=f"{request.user_id}_{datetime.now().timestamp()}",
+            user_message=request.message,
+            agent_response=response.response,
+            agent_name=response.agent_name,
+            metadata=response.metadata
         )
 
-    async def handle_email(self, request: AgentRequest) -> AgentResponse:
-        return AgentResponse(
-            agent_name="EmailAgent",
-            response=f"I can help you with email management. You mentioned: '{request.message}'. I can sort emails, compose messages, and manage your inbox.",
-            type="email",
-            metadata={"intent": "email", "action_needed": "email_management"},
-            requires_follow_up=True,
-            suggested_actions=["Check inbox", "Compose email", "Sort by priority"]
-        )
+        return response
+
 
 # Initialize orchestrator
 orchestrator = SimpleOrchestrator()

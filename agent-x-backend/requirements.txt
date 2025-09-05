@@ -2,3 +2,7 @@ fastapi
 uvicorn
 pydantic
 python-multipart
+sentence-transformers
+numpy
+splite3
+chromadb
