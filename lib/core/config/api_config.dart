@@ -1,6 +1,6 @@
 class ApiConfig {
   // Development configuration
-  static const String baseUrl = "http://192.168.1.13:8000"; // Local machine's IP btw.. you dumb fuq
+  static const String baseUrl = "http://192.168.1.8:8000"; // Local machine's IP btw.. you dumb fuq
 
   // API endpoints
   static const String agentsEndpoint = "/api/agents";
@@ -12,4 +12,9 @@ class ApiConfig {
   // Timeouts
   static const Duration connectTimeout = Duration(seconds: 30);
   static const Duration receiveTimeout = Duration(seconds: 30);
+
+  static const Map<String, String> defaultHeaders = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
 }

@@ -47,17 +47,23 @@ class AgentOrchestrator {
   }
 
   // Main orchestration method
-  Future<AgentResponse> processRequest(String message) async {
+  Future<AgentResponse> processRequest(String message, {String? profession}) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
         throw Exception('User not authenticated');
       }
 
+      // Get existing context and add profession
+      final context = await _buildContext();
+      if (profession != null && profession.isNotEmpty) {
+        context['profession'] = profession;  // Add this line
+      }
+
       final request = AgentRequest(
         message: message,
         userId: user.uid,
-        context: await _buildContext(),
+        context: context,
         timestamp: DateTime.now(),
       );
 
@@ -77,6 +83,7 @@ class AgentOrchestrator {
       );
     }
   }
+
 
   Future<Map<String, dynamic>> _buildContext() async {
     // Build context from user profile and app state
