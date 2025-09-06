@@ -1,35 +1,25 @@
 import sqlite3
 import json
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from datetime import datetime, timedelta 
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-import chromadb
-from chromadb.config import Settings
+
+from sentence_transformers import SentenceTransformer
+from chromadb import PersistentClient  # New import
 
 class MemoryManager:
     def __init__(self, db_path: str = "agent_memory.db"):
         self.db_path = db_path
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-        # Initialize ChromaDB for vector storage
-        self.chroma_client = chromadb.Client(Settings(
-            chroma_db_impl="duckdb+parquet",
-            persist_directory="./chroma_db"
-        ))
+        # Use new PersistentClient instead of deprecated Settings
+        self.chroma_client = PersistentClient(path="./chroma_db")
 
         # Create collections
-        self.conversations = self._get_or_create_collection("conversations")
-        self.user_preferences = self._get_or_create_collection("user_preferences")
-        self.agent_context = self._get_or_create_collection("agent_context")
+        self.conversations = self.chroma_client.get_or_create_collection("conversations")
+        self.user_preferences = self.chroma_client.get_or_create_collection("user_preferences")
+        self.agent_context = self.chroma_client.get_or_create_collection("agent_context")
 
         self._init_sqlite_db()
-
-    def _get_or_create_collection(self, name: str):
-        try:
-            return self.chroma_client.get_collection(name)
-        except:
-            return self.chroma_client.create_collection(name)
 
     def _init_sqlite_db(self):
         """Initialize SQLite for structured data"""
@@ -76,10 +66,18 @@ class MemoryManager:
         conn.commit()
         conn.close()
 
-    async def store_conversation(self, user_id, message_id, user_message, agent_response, agent_name, metadata=None):
+    async def store_conversation(
+            self,
+            user_id: str,
+            message_id: str,
+            user_message: str,
+            agent_response: str,
+            agent_name: str,
+            metadata: Dict[str, Any] = None
+    ):
         """Store conversation with vector embeddings for semantic search"""
 
-        print(f"[MEMORY] Storing conversation for user {user_id}: '{user_message[:50]}...'")
+        print(f"🧠 [MEMORY] Storing conversation for user {user_id}: '{user_message[:50]}...'")
 
         # Store in SQLite
         conn = sqlite3.connect(self.db_path)
@@ -94,9 +92,9 @@ class MemoryManager:
         conn.commit()
         conn.close()
 
-        print(f"[MEMORY] Conversation stored in SQLite database")
+        print(f"🧠 [MEMORY] ✅ Conversation stored in SQLite database")
 
-        # Store in ChromaDB
+        # Create embeddings and store in ChromaDB
         try:
             combined_text = f"User: {user_message} Agent: {agent_response}"
             embedding = self.embedding_model.encode([combined_text])[0].tolist()
@@ -113,14 +111,19 @@ class MemoryManager:
                 }],
                 ids=[message_id]
             )
-            print(f"[MEMORY] Vector embedding stored in ChromaDB")
+            print(f"🧠 [MEMORY] ✅ Vector embedding stored in ChromaDB")
         except Exception as e:
-            print(f"[MEMORY] ❌ Error storing in ChromaDB: {e}")
+            print(f"🧠 [MEMORY] ❌ Error storing in ChromaDB: {e}")
 
-    async def search_conversations(self, query, user_id, limit=5):
+    async def search_conversations(
+            self,
+            query: str,
+            user_id: str,
+            limit: int = 5
+    ) -> List[Dict[str, Any]]:
         """Search past conversations using semantic similarity"""
 
-        print(f"[MEMORY] Searching conversations for user {user_id} with query: '{query}'")
+        print(f"🧠 [MEMORY] Searching conversations for user {user_id} with query: '{query}'")
 
         try:
             query_embedding = self.embedding_model.encode([query])[0].tolist()
@@ -141,10 +144,10 @@ class MemoryManager:
                         "metadata": results['metadatas'][0][i]
                     })
 
-            print(f"[MEMORY] Found {len(conversations)} relevant conversations")
+            print(f"🧠 [MEMORY] Found {len(conversations)} relevant conversations")
             return conversations
         except Exception as e:
-            print(f"[MEMORY] ❌ Error searching conversations: {e}")
+            print(f"🧠 [MEMORY] ❌ Error searching conversations: {e}")
             return []
 
     async def store_user_preferences(self, user_id: str, profession: str, preferences: Dict[str, Any]):
@@ -221,7 +224,7 @@ class MemoryManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        expires_at = datetime.now() + timedelta(hours=expires_hours)  # Fixed timedelta usage
+        expires_at = datetime.now() + timedelta(hours=expires_hours)
 
         cursor.execute('''
             INSERT INTO agent_context (user_id, agent_name, context_type, context_data, expires_at)
