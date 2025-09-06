@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:dio/dio.dart';
 import '../core/constants/app_constants.dart';
 import '../core/config/api_config.dart';
@@ -31,7 +30,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _inputController = AnimationController(
-      duration: AppConstants.normalAnimation,
+      duration: const Duration(milliseconds: 200),
       vsync: this,
     );
 
@@ -71,24 +70,21 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
+        resizeToAvoidBottomInset: true, // Enable proper keyboard handling
         appBar: _buildAppBar(),
-        body: Column(
-          children: [
-            Expanded(
-              child: RepaintBoundary(
-                child: _buildMessagesList(),
-              ),
-            ),
-            RepaintBoundary(
-              child: AnimatedPadding(
-                duration: AppConstants.keyboardAnimation,
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).viewInsets.bottom,
+        body: SafeArea( // Wrap in SafeArea
+          child: Column(
+            children: [
+              Expanded(
+                child: RepaintBoundary(
+                  child: _buildMessagesList(),
                 ),
-                child: _buildInputSection(),
               ),
-            ),
-          ],
+              RepaintBoundary(
+                child: _buildInputSection(), // Remove the AnimatedPadding wrapper
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -96,14 +92,23 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
+      centerTitle: true,
       title: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Agent X'),
-          Text(
-            '${widget.profession} AI Assistant', // Shows profession in subtitle
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+          const Center(
+            child: Text(
+              'Agent X',
+              style: TextStyle(fontWeight: FontWeight.bold), // optional, makes it bold
+            ),
+          ),
+          Align(
+            alignment: Alignment.center,
+            child: Text(
+              '${widget.profession} AI Assistant',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
         ],
@@ -111,6 +116,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       actions: [
         PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
+          onOpened: () => FocusScope.of(context).unfocus(), // Unfocus when opened
+          onCanceled: () {
+            // Don't automatically refocus - let user tap input if they want
+          },
           onSelected: _handleMenuSelection,
           itemBuilder: (context) => [
             const PopupMenuItem(
@@ -237,12 +246,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(
-        AppConstants.spacingM,
-        AppConstants.spacingM,
-        AppConstants.spacingM,
-        AppConstants.spacingM,
-      ),
+      padding: const EdgeInsets.all(AppConstants.spacingM),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
