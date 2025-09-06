@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../widgets/enhanced_chat_bubble.dart';
-import '../models/chat_message.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:dio/dio.dart';
 import '../core/constants/app_constants.dart';
-import '../widgets/app_logo.dart';
+import '../core/config/api_config.dart';
 import '../core/agents/agent_orchestrator.dart';
+import '../models/chat_message.dart';
+import '../widgets/enhanced_chat_bubble.dart';
 
 class ChatScreen extends StatefulWidget {
-  final String profession;
+  final String profession; // Restored profession parameter
 
   const ChatScreen({super.key, required this.profession});
 
@@ -15,44 +17,45 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen>
-    with TickerProviderStateMixin {
+class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
+  final List<ChatMessage> _messages = [];
 
-  List<ChatMessage> _messages = [];
   bool _isTyping = false;
-  bool _isTextEmpty = true;
-
-  late AnimationController _sendButtonController;
   late AnimationController _inputController;
+  late Dio dio;
 
   @override
   void initState() {
     super.initState();
-
-    _sendButtonController = AnimationController(
-      duration: AppConstants.fastAnimation,
-      vsync: this,
-    );
-
     _inputController = AnimationController(
       duration: AppConstants.normalAnimation,
       vsync: this,
     );
 
-    _controller.addListener(_onTextChanged);
-    _inputController.forward();
+    dio = Dio(BaseOptions(
+      baseUrl: ApiConfig.baseUrl,
+      headers: ApiConfig.defaultHeaders,
+    ));
 
-    // Add welcome message
     _addWelcomeMessage();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    _focusNode.dispose();
+    _inputController.dispose();
+    super.dispose();
   }
 
   void _addWelcomeMessage() {
     final welcomeMessage = ChatMessage(
-      id: 'welcome',
-      content: 'Hello! I\'m Agent X, your AI assistant. I\'m here to help you with anything related to your profession as a ${widget.profession}. How can I assist you today?',
+      id: '0',
+      content: "Hello! I'm Agent X, your AI assistant. I'm here to help you with anything related to your profession as a ${widget.profession}. How can I assist you today?", // Uses profession
       type: MessageType.assistant,
       timestamp: DateTime.now(),
     );
@@ -62,249 +65,383 @@ class _ChatScreenState extends State<ChatScreen>
     });
   }
 
-  void _onTextChanged() {
-    final isEmpty = _controller.text.trim().isEmpty;
-    if (isEmpty != _isTextEmpty) {
-      setState(() => _isTextEmpty = isEmpty);
-      if (isEmpty) {
-        _sendButtonController.reverse();
-      } else {
-        _sendButtonController.forward();
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _scrollController.dispose();
-    _focusNode.dispose();
-    _sendButtonController.dispose();
-    _inputController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-    final isKeyboardVisible = keyboardHeight > 0;
-
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      resizeToAvoidBottomInset: true,
-      appBar: _buildAppBar(),
-      body: Column(
-        children: [
-          // Messages List
-          Expanded(
-            child: RepaintBoundary(
-              child: ListView.builder(
-                controller: _scrollController,
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppConstants.spacingM,
-                  vertical: AppConstants.spacingS,
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        appBar: _buildAppBar(),
+        body: Column(
+          children: [
+            Expanded(
+              child: RepaintBoundary(
+                child: _buildMessagesList(),
+              ),
+            ),
+            RepaintBoundary(
+              child: AnimatedPadding(
+                duration: AppConstants.keyboardAnimation,
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
                 ),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  final message = _messages[index];
-                  final showAvatar = index == _messages.length - 1 ||
-                      _messages[index + 1].type != message.type;
-
-                  return EnhancedChatBubble(
-                    message: message,
-                    showAvatar: showAvatar,
-                    onRetry: message.status == MessageStatus.failed
-                        ? () => _retryMessage(message)
-                        : null,
-                  );
-                },
+                child: _buildInputSection(),
               ),
             ),
-          ),
-
-          // Input Section - Optimized for Performance
-          RepaintBoundary(
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeInOut,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
-              padding: EdgeInsets.fromLTRB(
-                AppConstants.spacingM,
-                AppConstants.spacingM,
-                AppConstants.spacingM,
-                // AppConstants.spacingM + keyboardHeight, // Direct keyboard handling
-                AppConstants.spacingM,
-              ),
-              child: _buildInputSection(isKeyboardVisible),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      elevation: 0,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      surfaceTintColor: Colors.transparent,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back_ios),
-        onPressed: () => Navigator.pop(context),
-        splashRadius: 24,
-      ),
-      title: Row(
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Replace the old Container with AppLogo
-          const AppLogo(
-            size: 40,
-            showShadow: true,
-            useGradientBackground: false, // Set to true if you want gradient background
-          ),
-          const SizedBox(width: AppConstants.spacingM),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Agent X',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  _isTyping ? 'typing...' : 'AI Assistant',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
+          const Text('Agent X'),
+          Text(
+            '${widget.profession} AI Assistant', // Shows profession in subtitle
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
       ),
       actions: [
-        IconButton(
+        PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert),
-          onPressed: _showOptionsMenu,
-          splashRadius: 24,
+          onSelected: _handleMenuSelection,
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'clear_chat',
+              child: Row(
+                children: [
+                  Icon(Icons.chat_bubble_outline, size: 20),
+                  SizedBox(width: 12),
+                  Text('Clear Chat'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'clear_data',
+              child: Row(
+                children: [
+                  Icon(Icons.delete_forever, size: 20, color: Colors.red),
+                  SizedBox(width: 12),
+                  Text('Clear Data', style: TextStyle(color: Colors.red)),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'export_chat',
+              child: Row(
+                children: [
+                  Icon(Icons.download, size: 20),
+                  SizedBox(width: 12),
+                  Text('Export Chat'),
+                ],
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'memory_debug',
+              child: Row(
+                children: [
+                  Icon(Icons.memory, size: 20),
+                  SizedBox(width: 12),
+                  Text('Memory Status'),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
 
-
   Widget _buildMessagesList() {
+    if (_messages.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _getProfessionIcon(),
+              size: 64,
+              color: Theme.of(context).colorScheme.outline,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Your ${widget.profession} AI Assistant',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Ask me anything related to ${widget.profession.toLowerCase()} work, studies, or general questions!',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
     return ListView.builder(
       controller: _scrollController,
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingM),
       itemCount: _messages.length,
       itemBuilder: (context, index) {
-        final message = _messages[index];
-        final showAvatar = index == _messages.length - 1 ||
-            _messages[index + 1].type != message.type;
-
         return EnhancedChatBubble(
-          message: message,
-          showAvatar: showAvatar,
-          onRetry: message.status == MessageStatus.failed
-              ? () => _retryMessage(message)
-              : null,
+          message: _messages[index],
+          showAvatar: index == 0 ||
+              _messages[index].type != _messages[index - 1].type,
         );
       },
     );
   }
 
-  Widget _buildInputSection(bool isKeyboardVisible) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Expanded(
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150), // Faster for older devices
-            constraints: const BoxConstraints(maxHeight: 120),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              maxLines: null,
-              keyboardType: TextInputType.multiline,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                hintText: 'Ask me anything...',
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
-                ),
-                hintStyle: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.6),
-                ),
+  // Get profession-specific icon
+  IconData _getProfessionIcon() {
+    switch (widget.profession.toLowerCase()) {
+      case 'student':
+        return Icons.school;
+      case 'engineer':
+        return Icons.engineering;
+      case 'doctor':
+        return Icons.local_hospital;
+      case 'teacher':
+        return Icons.cast_for_education;
+      case 'lawyer':
+        return Icons.gavel;
+      case 'developer':
+        return Icons.code;
+      case 'designer':
+        return Icons.design_services;
+      default:
+        return Icons.work;
+    }
+  }
+
+  Widget _buildInputSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(
+        AppConstants.spacingM,
+        AppConstants.spacingM,
+        AppConstants.spacingM,
+        AppConstants.spacingM,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: Container(
+              constraints: const BoxConstraints(maxHeight: 120),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(24),
               ),
-              style: Theme.of(context).textTheme.bodyMedium,
-              enabled: !_isTyping,
-              onSubmitted: (_) => _sendMessage(),
+              child: TextField(
+                controller: _controller,
+                focusNode: _focusNode,
+                maxLines: null,
+                textCapitalization: TextCapitalization.sentences,
+                decoration: InputDecoration(
+                  hintText: 'Ask me about ${widget.profession.toLowerCase()} topics...', // Profession-specific hint
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                ),
+                style: Theme.of(context).textTheme.bodyMedium,
+                enabled: !_isTyping,
+                onSubmitted: (_) => _sendMessage(),
+              ),
             ),
           ),
-        ),
-
-        const SizedBox(width: AppConstants.spacingS),
-
-        _buildSendButton(),
-      ],
+          const SizedBox(width: AppConstants.spacingS),
+          _buildSendButton(),
+        ],
+      ),
     );
   }
 
   Widget _buildSendButton() {
-    final bool canSend = _controller.text.trim().isNotEmpty && !_isTyping;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      width: 48,
+    return Container(
       height: 48,
+      width: 48,
       decoration: BoxDecoration(
-        gradient: canSend
-            ? LinearGradient(
-          colors: [
-            Theme.of(context).colorScheme.primary,
-            Theme.of(context).colorScheme.secondary,
-          ],
-        )
-            : null,
-        color: canSend
-            ? null
-            : Theme.of(context).colorScheme.outline.withOpacity(0.3),
+        color: Theme.of(context).colorScheme.primary,
         borderRadius: BorderRadius.circular(24),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(24),
-          onTap: canSend ? _sendMessage : null,
-          child: Icon(
-            Icons.send_rounded,
-            color: canSend
-                ? Colors.white
-                : Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.5),
-            size: 20,
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
+        ],
+      ),
+      child: IconButton(
+        onPressed: _isTyping ? null : _sendMessage,
+        icon: Icon(
+          _isTyping ? Icons.hourglass_empty : Icons.send_rounded,
+          color: Colors.white,
+          size: 20,
         ),
       ),
     );
+  }
+
+  void _handleMenuSelection(String value) async {
+    switch (value) {
+      case 'clear_chat':
+        await _clearChat();
+        break;
+      case 'clear_data':
+        await _clearAllData();
+        break;
+      case 'export_chat':
+        await _exportChat();
+        break;
+      case 'memory_debug':
+        await _showMemoryStatus();
+        break;
+    }
+  }
+
+  Future<void> _clearChat() async {
+    final confirmed = await _showConfirmDialog(
+      title: 'Clear Chat',
+      content: 'This will clear all messages in this chat session. Your memory data will be preserved.',
+      confirmText: 'Clear',
+      isDestructive: false,
+    );
+
+    if (confirmed) {
+      setState(() {
+        _messages.clear();
+        _addWelcomeMessage();
+      });
+
+      _showSuccessSnackBar('Chat cleared successfully');
+    }
+  }
+
+  Future<void> _clearAllData() async {
+    final confirmed = await _showConfirmDialog(
+      title: 'Clear All Data',
+      content: 'This will permanently delete:\n\n• All chat messages\n• All memory data\n• User preferences\n• Agent context\n\nThis action cannot be undone!',
+      confirmText: 'Delete All',
+      isDestructive: true,
+    );
+
+    if (confirmed) {
+      try {
+        setState(() {
+          _messages.clear();
+          _isTyping = false;
+        });
+
+        final response = await dio.post('/api/clear_memory', data: {
+          'user_id': _getCurrentUserId(),
+        });
+
+        if (response.statusCode == 200 && response.data['status'] == 'success') {
+          _addWelcomeMessage();
+          _showSuccessSnackBar('All data cleared successfully');
+        } else {
+          _showErrorMessage('Failed to clear backend data: ${response.data['message']}');
+        }
+      } catch (e) {
+        _showErrorMessage('Failed to clear data: ${e.toString()}');
+      }
+    }
+  }
+
+  Future<void> _exportChat() async {
+    try {
+      _showInfoSnackBar('Preparing chat export...');
+
+      final response = await dio.post('/api/export_chat', data: {
+        'user_id': _getCurrentUserId(),
+      });
+
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        final exportData = response.data['data'];
+        await _showExportDialog(exportData);
+      } else {
+        _showErrorMessage('Failed to export: ${response.data['message']}');
+      }
+    } catch (e) {
+      _showErrorMessage('Export failed: ${e.toString()}');
+    }
+  }
+
+  Future<void> _showMemoryStatus() async {
+    try {
+      final response = await dio.get('/api/memory/debug/${_getCurrentUserId()}');
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Memory Status'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildInfoRow('User ID', _getCurrentUserId()),
+                  _buildInfoRow('Profession', widget.profession), // Shows current profession
+                  _buildInfoRow('Total Conversations', '${data['total_conversations'] ?? 0}'),
+                  _buildInfoRow('Stored Profession', '${data['user_context']?['profession'] ?? 'Unknown'}'),
+                  _buildInfoRow('Database Path', '${data['database_path'] ?? 'Unknown'}'),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Recent Conversations:',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  ...((data['conversations'] as List<dynamic>?) ?? [])
+                      .take(3)
+                      .map((conv) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      '${conv['content']?.substring(0, 50) ?? 'No content'}...',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ))
+                      .toList(),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      _showErrorMessage('Failed to load memory status: ${e.toString()}');
+    }
   }
 
   void _sendMessage() async {
@@ -331,15 +468,18 @@ class _ChatScreenState extends State<ChatScreen>
 
     try {
       final orchestrator = AgentOrchestrator();
-      final agentResponse = await orchestrator.processRequest(text);
+      // Pass profession context to the orchestrator
+      final agentResponse = await orchestrator.processRequest(
+        text,
+        profession: widget.profession, // Pass profession for context-aware responses
+      );
 
-      // Create assistant message with metadata
       final assistantMessage = ChatMessage(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         content: agentResponse.response,
         type: MessageType.assistant,
         timestamp: DateTime.now(),
-        metadata: agentResponse.metadata, // Include metadata from API response
+        metadata: agentResponse.metadata,
       );
 
       setState(() {
@@ -362,72 +502,69 @@ class _ChatScreenState extends State<ChatScreen>
     }
   }
 
-
-  void _retryMessage(ChatMessage message) {
-    // Implementation for retry functionality
-    HapticFeedback.lightImpact();
-    _sendMessage();
-  }
-
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: AppConstants.normalAnimation,
-          curve: Curves.easeOutCubic,
+          duration: AppConstants.fastAnimation,
+          curve: Curves.easeOut,
         );
       }
     });
   }
 
-  void _showOptionsMenu() {
-    showModalBottomSheet(
+  Future<bool> _showConfirmDialog({
+    required String title,
+    required String content,
+    required String confirmText,
+    required bool isDestructive,
+  }) async {
+    final result = await showDialog<bool>(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(AppConstants.radiusL),
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
-        ),
-        padding: AppConstants.paddingL,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: AppConstants.spacingL),
-            ListTile(
-              leading: const Icon(Icons.clear_all),
-              title: const Text('Clear Chat'),
-              onTap: _clearChat,
-            ),
-            ListTile(
-              leading: const Icon(Icons.download),
-              title: const Text('Export Chat'),
-              onTap: _exportChat,
-            ),
-          ],
-        ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: isDestructive
+                ? TextButton.styleFrom(foregroundColor: Colors.red)
+                : null,
+            child: Text(confirmText),
+          ),
+        ],
       ),
     );
+
+    return result ?? false;
   }
 
-  void _clearChat() {
-    Navigator.pop(context);
+  Future<void> _showExportDialog(Map<String, dynamic> exportData) async {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Clear Chat'),
-        content: const Text('Are you sure you want to clear all messages?'),
+        title: const Text('Export Chat'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Export Data:'),
+            const SizedBox(height: 8),
+            _buildInfoRow('Profession', widget.profession), // Include profession in export
+            _buildInfoRow('Total Messages', '${exportData['total_messages']}'),
+            _buildInfoRow('Export Date', exportData['export_date']),
+            const SizedBox(height: 16),
+            const Text(
+              'Choose export format:',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -436,22 +573,99 @@ class _ChatScreenState extends State<ChatScreen>
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              setState(() {
-                _messages.clear();
-              });
-              _addWelcomeMessage();
+              _copyToClipboard(exportData);
             },
-            child: const Text('Clear'),
+            child: const Text('Copy to Clipboard'),
           ),
         ],
       ),
     );
   }
 
-  void _exportChat() {
-    Navigator.pop(context);
-    // Implementation for export functionality
-    _showErrorMessage('Export feature coming soon!');
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child: Text(
+              '$label:',
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
+          Expanded(
+            child: Text(value),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _copyToClipboard(Map<String, dynamic> data) {
+    final text = '''
+Agent X Chat Export - ${widget.profession} Assistant
+====================================================
+User ID: ${data['user_id']}
+Profession: ${widget.profession}
+Export Date: ${data['export_date']}
+Total Messages: ${data['total_messages']}
+
+Conversations:
+${(data['conversations'] as List<dynamic>).map((conv) =>
+    'User: ${conv['user_message']}\nAgent: ${conv['agent_response']}\nTime: ${conv['timestamp']}\n---'
+    ).join('\n')}
+    ''';
+
+    Clipboard.setData(ClipboardData(text: text));
+    _showSuccessSnackBar('Chat data copied to clipboard');
+  }
+
+  String _getCurrentUserId() {
+    return 'user_${widget.profession.toLowerCase()}_123'; // Include profession in user ID
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: const Color(0xFF10B981),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        ),
+        margin: AppConstants.paddingM,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showInfoSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.info, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Colors.blue,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        ),
+        margin: AppConstants.paddingM,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _showErrorMessage(String message) {
@@ -459,9 +673,21 @@ class _ChatScreenState extends State<ChatScreen>
       SnackBar(
         content: Row(
           children: [
-            const Icon(Icons.error_outline, color: Colors.white, size: 20),
+            Icon(
+              Icons.error_outline,
+              color: Theme.of(context).colorScheme.onError,
+              size: 20,
+            ),
             const SizedBox(width: AppConstants.spacingM),
-            Expanded(child: Text(message)),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onError,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
           ],
         ),
         backgroundColor: Theme.of(context).colorScheme.error,
@@ -470,6 +696,7 @@ class _ChatScreenState extends State<ChatScreen>
           borderRadius: BorderRadius.circular(AppConstants.radiusM),
         ),
         margin: AppConstants.paddingM,
+        duration: const Duration(seconds: 4),
       ),
     );
   }

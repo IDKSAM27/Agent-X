@@ -4,5 +4,5 @@ pydantic
 python-multipart
 sentence-transformers
 numpy
-splite3
+sqlite3
 chromadb

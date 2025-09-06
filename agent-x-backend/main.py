@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, List
 import re
 import uvicorn
 import logging
+import sqlite3
 
 # Set up proper logging
 logging.basicConfig(
@@ -457,6 +458,96 @@ async def get_agents():
         "agents": list(orchestrator.agents.keys()),
         "total": len(orchestrator.agents)
     }
+
+# Clear memory API endpoint
+@app.post("/api/clear_memory")
+async def clear_memory(request: Request):
+    """Clear all user data and memory"""
+    try:
+        body = await request.json()
+        user_id = body.get('user_id')
+
+        if not user_id:
+            return {"error": "user_id is required"}
+
+        if not MEMORY_ENABLED:
+            return {"error": "Memory system not enabled"}
+
+        logger.info(f"🗑️ Clearing all data for user: {user_id}")
+
+        # Clear SQLite database
+        conn = sqlite3.connect(memory_manager.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('DELETE FROM conversations WHERE user_id = ?', (user_id,))
+        cursor.execute('DELETE FROM user_preferences WHERE user_id = ?', (user_id,))
+        cursor.execute('DELETE FROM agent_context WHERE user_id = ?', (user_id,))
+
+        conn.commit()
+        conn.close()
+
+        # Clear ChromaDB vector collections
+        try:
+            memory_manager.conversations.delete(where={"user_id": user_id})
+            memory_manager.user_preferences.delete(where={"user_id": user_id})
+            memory_manager.agent_context.delete(where={"user_id": user_id})
+        except Exception as e:
+            logger.warning(f"ChromaDB clear warning: {e}")
+
+        logger.info(f"🗑️ ✅ All data cleared for user: {user_id}")
+
+        return {
+            "status": "success",
+            "message": "All chat history and memory data cleared successfully",
+            "cleared_data": ["conversations", "user_preferences", "agent_context"]
+        }
+
+    except Exception as e:
+        logger.error(f"🗑️ ❌ Error clearing memory: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/export_chat")
+async def export_chat(request: Request):
+    """Export chat history for user"""
+    try:
+        body = await request.json()
+        user_id = body.get('user_id')
+
+        if not user_id or not MEMORY_ENABLED:
+            return {"error": "user_id required and memory must be enabled"}
+
+        # Get all conversations
+        conn = sqlite3.connect(memory_manager.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT user_message, agent_response, agent_name, timestamp 
+            FROM conversations WHERE user_id = ? 
+            ORDER BY timestamp ASC
+        ''', (user_id,))
+
+        conversations = cursor.fetchall()
+        conn.close()
+
+        # Format as exportable data
+        export_data = {
+            "user_id": user_id,
+            "export_date": datetime.now().isoformat(),
+            "total_messages": len(conversations),
+            "conversations": [
+                {
+                    "user_message": conv[0],
+                    "agent_response": conv[1],
+                    "agent_name": conv[2],
+                    "timestamp": conv[3]
+                }
+                for conv in conversations
+            ]
+        }
+
+        return {"status": "success", "data": export_data}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     uvicorn.run(
