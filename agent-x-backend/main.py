@@ -1,10 +1,18 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import re
 import uvicorn
+import logging
+
+# Set up proper logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Agent X Backend",
@@ -12,14 +20,22 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware for Flutter app
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure properly for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Try to import memory system
+try:
+    from memory_manager import memory_manager
+    MEMORY_ENABLED = True
+    logger.info("🧠 Memory system loaded successfully!")
+except ImportError as e:
+    logger.warning(f"⚠️ Memory system not available: {e}")
+    MEMORY_ENABLED = False
 
 # Pydantic models
 class AgentRequest(BaseModel):
@@ -36,13 +52,14 @@ class AgentResponse(BaseModel):
     requires_follow_up: bool = False
     suggested_actions: Optional[List[str]] = None
 
-# Complete Enhanced Calendar Agent
+# Enhanced Calendar Agent (same as before)
 class EnhancedCalendarAgent:
     def __init__(self):
         self.events = []
 
     async def process(self, request: AgentRequest) -> AgentResponse:
         message = request.message.lower()
+        logger.debug(f"📅 Calendar agent processing: {message}")
 
         if any(word in message for word in ['schedule', 'book', 'create', 'add']):
             return await self.create_event(request)
@@ -71,6 +88,7 @@ class EnhancedCalendarAgent:
             }
 
             self.events.append(event)
+            logger.info(f"📅 Created event: {event['title']} on {event['date']}")
 
             return AgentResponse(
                 agent_name="CalendarAgent",
@@ -219,17 +237,17 @@ class EnhancedCalendarAgent:
 
         return event_data if event_data else None
 
-# COMPLETE ORCHESTRATOR WITH ALL METHODS DEFINED
+# MEMORY-AWARE ORCHESTRATOR
 class SimpleOrchestrator:
     def __init__(self):
         self.calendar_agent = EnhancedCalendarAgent()
-        self.agents = {  # This property was missing
+        self.agents = {
             'chat': 'ChatAgent',
             'calendar': 'CalendarAgent',
             'email': 'EmailAgent',
         }
+        self.memory_enabled = MEMORY_ENABLED
 
-    # CLASSIFY INTENT METHOD
     async def classify_intent(self, message: str) -> str:
         message_lower = message.lower()
 
@@ -240,31 +258,106 @@ class SimpleOrchestrator:
         else:
             return 'chat'
 
-    # PROCESS REQUEST METHOD
+    # ENHANCED PROCESS REQUEST WITH MEMORY
     async def process_request(self, request: AgentRequest) -> AgentResponse:
+        logger.debug(f"🤖 Processing request from {request.user_id}: {request.message}")
+
+        # Get user context from memory if available
+        user_context = {}
+        if self.memory_enabled:
+            try:
+                user_context = await memory_manager.get_user_context(request.user_id)
+                logger.debug(f"🧠 Retrieved context for {request.user_id}: {len(user_context.get('recent_conversations', []))} conversations")
+            except Exception as e:
+                logger.error(f"🧠 Memory error: {e}")
+                user_context = {}
+
         intent = await self.classify_intent(request.message)
+        logger.debug(f"🎯 Classified intent: {intent}")
 
         if intent == 'chat':
-            return await self.handle_chat(request)
+            response = await self.handle_chat(request, user_context)
         elif intent == 'calendar':
-            return await self.calendar_agent.process(request)
+            response = await self.calendar_agent.process(request)
         elif intent == 'email':
-            return await self.handle_email(request)
+            response = await self.handle_email(request, user_context)
         else:
-            return await self.handle_chat(request)
+            response = await self.handle_chat(request, user_context)
 
-    # HANDLE CHAT METHOD
-    async def handle_chat(self, request: AgentRequest) -> AgentResponse:
+        # Store conversation in memory
+        if self.memory_enabled:
+            try:
+                message_id = f"{request.user_id}_{datetime.now().timestamp()}"
+                await memory_manager.store_conversation(
+                    user_id=request.user_id,
+                    message_id=message_id,
+                    user_message=request.message,
+                    agent_response=response.response,
+                    agent_name=response.agent_name,
+                    metadata=response.metadata
+                )
+                logger.info(f"🧠 Stored conversation for {request.user_id}")
+
+                # Store user preferences if mentioned
+                await self.extract_and_store_preferences(request, user_context)
+
+            except Exception as e:
+                logger.error(f"🧠 Failed to store conversation: {e}")
+
+        return response
+
+    # MEMORY-AWARE CHAT HANDLER
+    async def handle_chat(self, request: AgentRequest, user_context: dict = None) -> AgentResponse:
+        message = request.message.lower()
+
+        # Check if user is asking about their name/profession
+        if any(word in message for word in ['my name', 'what is my name', 'who am i']):
+            if user_context and user_context.get('recent_conversations'):
+                # Search for name mentions in past conversations
+                for conv in user_context['recent_conversations']:
+                    content = conv.get('content', '').lower()
+                    if 'my name is' in content or 'i am' in content:
+                        # Extract name from conversation
+                        import re
+                        name_match = re.search(r'my name is (\w+)', content)
+                        if name_match:
+                            name = name_match.group(1).title()
+                            return AgentResponse(
+                                agent_name="ChatAgent",
+                                response=f"Your name is {name}! I remember you telling me that.",
+                                type="text",
+                                metadata={"intent": "name_recall", "memory_used": True},
+                                suggested_actions=["Tell me more about yourself", "What can you help me with?"]
+                            )
+
+        # Check if user is asking about their profession
+        elif any(word in message for word in ['my profession', 'what is my profession', 'what do i do', 'my job']):
+            if user_context and user_context.get('recent_conversations'):
+                for conv in user_context['recent_conversations']:
+                    content = conv.get('content', '').lower()
+                    if 'software engineer' in content or 'developer' in content or 'programmer' in content:
+                        return AgentResponse(
+                            agent_name="ChatAgent",
+                            response=f"You're a software engineer! I remember you mentioning that. How can I help you with your work today?",
+                            type="text",
+                            metadata={"intent": "profession_recall", "memory_used": True},
+                            suggested_actions=["Help with coding", "Schedule work meetings", "Plan your day"]
+                        )
+
+        # Enhanced chat with memory awareness
+        context_info = ""
+        if user_context and user_context.get('recent_conversations'):
+            context_info = f" I remember our previous conversations and I'm here to help based on what I know about you."
+
         return AgentResponse(
             agent_name="ChatAgent",
-            response=f"Hello! You said: '{request.message}'. I'm your AI assistant and I'm here to help with various tasks including scheduling, emails, and general conversation.",
+            response=f"Hello! You said: '{request.message}'. I'm your AI assistant and I'm here to help with various tasks including scheduling, emails, and general conversation.{context_info}",
             type="text",
-            metadata={"intent": "chat"},
+            metadata={"intent": "chat", "memory_used": bool(context_info)},
             suggested_actions=["Ask about schedule", "Check emails", "Plan your day"]
         )
 
-    # HANDLE EMAIL METHOD
-    async def handle_email(self, request: AgentRequest) -> AgentResponse:
+    async def handle_email(self, request: AgentRequest, user_context: dict = None) -> AgentResponse:
         return AgentResponse(
             agent_name="EmailAgent",
             response=f"I can help you with email management. You mentioned: '{request.message}'. I can sort emails, compose messages, and manage your inbox.",
@@ -274,36 +367,53 @@ class SimpleOrchestrator:
             suggested_actions=["Check inbox", "Compose email", "Sort by priority"]
         )
 
+    # EXTRACT USER PREFERENCES
+    async def extract_and_store_preferences(self, request: AgentRequest, user_context: dict):
+        message = request.message.lower()
+
+        # Extract name
+        name_match = re.search(r'my name is (\w+)', message)
+        if name_match:
+            name = name_match.group(1)
+
+        # Extract profession
+        profession = "Unknown"
+        if 'software engineer' in message:
+            profession = "Software Engineer"
+        elif 'developer' in message:
+            profession = "Developer"
+        elif 'student' in message:
+            profession = "Student"
+        elif 'teacher' in message:
+            profession = "Teacher"
+
+        if profession != "Unknown":
+            preferences = {"profession": profession}
+            await memory_manager.store_user_preferences(
+                user_id=request.user_id,
+                profession=profession,
+                preferences=preferences
+            )
+            logger.info(f"🧠 Stored user preference: {profession} for {request.user_id}")
+
 # Initialize orchestrator
 orchestrator = SimpleOrchestrator()
 
-# API Routes
-@app.get("/api/health")
-async def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
-
-@app.post("/api/agents/process", response_model=AgentResponse)
-async def process_agent_request(request: AgentRequest):
-    try:
-        response = await orchestrator.process_request(request)
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/agents")
-async def get_agents():
-    return {
-        "agents": list(orchestrator.agents.keys()),
-        "total": len(orchestrator.agents)
-    }
+# DEBUG ENDPOINTS
+@app.get("/debug")
+async def debug_endpoint():
+    logger.debug("🔧 Debug endpoint called")
+    return {"message": "Debug working", "memory_enabled": MEMORY_ENABLED}
 
 @app.get("/api/memory/debug/{user_id}")
 async def debug_memory(user_id: str):
     """Debug endpoint to inspect stored conversations"""
-    try:
-        # Import memory manager if not already imported
-        from memory_manager import memory_manager
+    logger.debug(f"🔍 Memory debug requested for user: {user_id}")
 
+    if not MEMORY_ENABLED:
+        return {"error": "Memory system not enabled"}
+
+    try:
         # Get all conversations for user
         conversations = await memory_manager.search_conversations(
             query="",
@@ -314,6 +424,8 @@ async def debug_memory(user_id: str):
         # Get user context
         user_context = await memory_manager.get_user_context(user_id)
 
+        logger.info(f"🔍 Found {len(conversations)} conversations for {user_id}")
+
         return {
             "user_id": user_id,
             "total_conversations": len(conversations),
@@ -322,27 +434,29 @@ async def debug_memory(user_id: str):
             "database_path": memory_manager.db_path
         }
     except Exception as e:
+        logger.error(f"🔍 Memory debug error: {e}")
         return {"error": str(e)}
 
-@app.get("/api/memory/search/{user_id}")
-async def search_memory(user_id: str, query: str):
-    """Search memory with specific query"""
+# API Routes
+@app.get("/api/health")
+async def health_check():
+    return {"status": "healthy", "memory_enabled": MEMORY_ENABLED, "timestamp": datetime.now().isoformat()}
+
+@app.post("/api/agents/process", response_model=AgentResponse)
+async def process_agent_request(request: AgentRequest):
     try:
-        from memory_manager import memory_manager
-
-        results = await memory_manager.search_conversations(
-            query=query,
-            user_id=user_id,
-            limit=10
-        )
-
-        return {
-            "query": query,
-            "user_id": user_id,
-            "results": results
-        }
+        response = await orchestrator.process_request(request)
+        return response
     except Exception as e:
-        return {"error": str(e)}
+        logger.error(f"❌ Error processing request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/agents")
+async def get_agents():
+    return {
+        "agents": list(orchestrator.agents.keys()),
+        "total": len(orchestrator.agents)
+    }
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -350,5 +464,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=True,
-        log_level="info"
+        log_level="debug"
     )
