@@ -80,9 +80,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   child: _buildMessagesList(),
                 ),
               ),
-              RepaintBoundary(
-                child: _buildInputSection(), // Remove the AnimatedPadding wrapper
+              AnimatedContainer( // Tried to make it smoother by using AnimatedContainer
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+                padding: EdgeInsets.all(AppConstants.spacingS),
+                child: RepaintBoundary(child: _buildInputSection()),
               ),
+
             ],
           ),
         ),
@@ -200,6 +204,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     return ListView.builder(
       controller: _scrollController,
       physics: const BouncingScrollPhysics(),
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingM),
       itemCount: _messages.length,
       itemBuilder: (context, index) {
