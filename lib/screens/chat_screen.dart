@@ -66,25 +66,30 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final messagesList = _buildMessagesList();
+    final inputSection = _buildInputSection();
+    final appBar = _buildAppBar();
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
         resizeToAvoidBottomInset: true, // Enable proper keyboard handling
-        appBar: _buildAppBar(),
+        appBar: appBar,
         body: SafeArea( // Wrap in SafeArea
           child: Column(
             children: [
               Expanded(
                 child: RepaintBoundary(
-                  child: _buildMessagesList(),
+                  child: messagesList,
                 ),
               ),
               AnimatedContainer( // Tried to make it smoother by using AnimatedContainer
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOut,
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
                 padding: EdgeInsets.all(AppConstants.spacingS),
-                child: RepaintBoundary(child: _buildInputSection()),
+                child: RepaintBoundary(
+                    child: inputSection
+                ),
               ),
 
             ],
