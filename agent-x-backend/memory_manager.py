@@ -2,7 +2,7 @@ import sqlite3
 import json
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from datetime import datetime, timedelta  # Fixed import
+from datetime import datetime, timedelta 
 from typing import List, Dict, Any, Optional
 import chromadb
 from chromadb.config import Settings
@@ -76,16 +76,10 @@ class MemoryManager:
         conn.commit()
         conn.close()
 
-    async def store_conversation(
-            self,
-            user_id: str,
-            message_id: str,
-            user_message: str,
-            agent_response: str,
-            agent_name: str,
-            metadata: Dict[str, Any] = None
-    ):
+    async def store_conversation(self, user_id, message_id, user_message, agent_response, agent_name, metadata=None):
         """Store conversation with vector embeddings for semantic search"""
+
+        print(f"[MEMORY] Storing conversation for user {user_id}: '{user_message[:50]}...'")
 
         # Store in SQLite
         conn = sqlite3.connect(self.db_path)
@@ -100,11 +94,13 @@ class MemoryManager:
         conn.commit()
         conn.close()
 
-        # Create embeddings and store in ChromaDB
-        combined_text = f"User: {user_message} Agent: {agent_response}"
-        embedding = self.embedding_model.encode([combined_text])[0].tolist()
+        print(f"[MEMORY] Conversation stored in SQLite database")
 
+        # Store in ChromaDB
         try:
+            combined_text = f"User: {user_message} Agent: {agent_response}"
+            embedding = self.embedding_model.encode([combined_text])[0].tolist()
+
             self.conversations.add(
                 documents=[combined_text],
                 embeddings=[embedding],
@@ -113,20 +109,18 @@ class MemoryManager:
                     "message_id": message_id,
                     "agent_name": agent_name,
                     "timestamp": datetime.now().isoformat(),
-                    **(metadata or {})  # Fixed metadata spreading
+                    **(metadata or {})
                 }],
                 ids=[message_id]
             )
+            print(f"[MEMORY] Vector embedding stored in ChromaDB")
         except Exception as e:
-            print(f"Error storing in ChromaDB: {e}")
+            print(f"[MEMORY] ❌ Error storing in ChromaDB: {e}")
 
-    async def search_conversations(
-            self,
-            query: str,
-            user_id: str,
-            limit: int = 5
-    ) -> List[Dict[str, Any]]:
+    async def search_conversations(self, query, user_id, limit=5):
         """Search past conversations using semantic similarity"""
+
+        print(f"[MEMORY] Searching conversations for user {user_id} with query: '{query}'")
 
         try:
             query_embedding = self.embedding_model.encode([query])[0].tolist()
@@ -138,7 +132,7 @@ class MemoryManager:
             )
 
             conversations = []
-            if results['ids'] and results['ids'][0]:  # Added safety check
+            if results['ids'] and results['ids'][0]:
                 for i in range(len(results['ids'][0])):
                     conversations.append({
                         "message_id": results['ids'][0][i],
@@ -147,9 +141,10 @@ class MemoryManager:
                         "metadata": results['metadatas'][0][i]
                     })
 
+            print(f"[MEMORY] Found {len(conversations)} relevant conversations")
             return conversations
         except Exception as e:
-            print(f"Error searching conversations: {e}")
+            print(f"[MEMORY] ❌ Error searching conversations: {e}")
             return []
 
     async def store_user_preferences(self, user_id: str, profession: str, preferences: Dict[str, Any]):
