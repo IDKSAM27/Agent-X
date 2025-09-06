@@ -223,7 +223,7 @@ class EnhancedCalendarAgent:
 class SimpleOrchestrator:
     def __init__(self):
         self.calendar_agent = EnhancedCalendarAgent()
-        self.agents = {  # ✅ This property was missing
+        self.agents = {  # This property was missing
             'chat': 'ChatAgent',
             'calendar': 'CalendarAgent',
             'email': 'EmailAgent',
@@ -296,6 +296,53 @@ async def get_agents():
         "agents": list(orchestrator.agents.keys()),
         "total": len(orchestrator.agents)
     }
+
+@app.get("/api/memory/debug/{user_id}")
+async def debug_memory(user_id: str):
+    """Debug endpoint to inspect stored conversations"""
+    try:
+        # Import memory manager if not already imported
+        from memory_manager import memory_manager
+
+        # Get all conversations for user
+        conversations = await memory_manager.search_conversations(
+            query="",
+            user_id=user_id,
+            limit=50
+        )
+
+        # Get user context
+        user_context = await memory_manager.get_user_context(user_id)
+
+        return {
+            "user_id": user_id,
+            "total_conversations": len(conversations),
+            "conversations": conversations,
+            "user_context": user_context,
+            "database_path": memory_manager.db_path
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/memory/search/{user_id}")
+async def search_memory(user_id: str, query: str):
+    """Search memory with specific query"""
+    try:
+        from memory_manager import memory_manager
+
+        results = await memory_manager.search_conversations(
+            query=query,
+            user_id=user_id,
+            limit=10
+        )
+
+        return {
+            "query": query,
+            "user_id": user_id,
+            "results": results
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     uvicorn.run(
