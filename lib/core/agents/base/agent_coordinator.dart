@@ -1,3 +1,5 @@
+import 'package:AgentX/core/agents/specialized/general_agent.dart';
+
 import 'agent_interface.dart';
 import '../specialized/task_agent.dart';
 
@@ -12,6 +14,7 @@ class AgentCoordinator {
 
   void _initializeAgents() {
     // Register agents
+    registerAgent(GeneralAgent());
     registerAgent(TaskAgent());
     // More agents will be added in subsequent days
   }
