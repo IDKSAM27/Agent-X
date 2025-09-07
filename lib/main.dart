@@ -28,7 +28,7 @@ void main() async {
   );
 
   // Initialize agent orchestrator
-  await AgentOrchestrator().initialize();
+  // await AgentOrchestrator().initialize();
 
   runApp(const AgentXApp());
 }

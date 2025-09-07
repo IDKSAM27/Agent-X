@@ -1,113 +1,51 @@
+// Update your existing AgentOrchestrator to use the new system
 import 'package:dio/dio.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'base_agent.dart';
 import '../config/api_config.dart';
+import '../agents/base/agent_coordinator.dart';
+import '../agents/base/agent_interface.dart';
 
 class AgentOrchestrator {
-  static final AgentOrchestrator _instance = AgentOrchestrator._internal();
-  factory AgentOrchestrator() => _instance;
-  AgentOrchestrator._internal();
+  final Dio _dio;
+  final AgentCoordinator _coordinator = AgentCoordinator();
 
-  final Dio _dio = Dio();
-  final Map<String, BaseAgent> _agents = {};
+  AgentOrchestrator() : _dio = Dio(BaseOptions(
+    baseUrl: ApiConfig.baseUrl,
+    headers: ApiConfig.defaultHeaders,
+  ));
 
-  // Initialize orchestrator
-  Future<void> initialize() async {
-    _setupDio();
-    // Register available agents (will expand in later phases)
-    _registerAgents();
-  }
-
-  void _setupDio() {
-    _dio.options.baseUrl = ApiConfig.baseUrl;
-    _dio.options.connectTimeout = const Duration(seconds: 30);
-    _dio.options.receiveTimeout = const Duration(seconds: 30);
-
-    // Add request interceptor for authentication
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) async {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          final token = await user.getIdToken();
-          options.headers['Authorization'] = 'Bearer $token';
-        }
-        handler.next(options);
-      },
-      onError: (error, handler) {
-        print('API Error: ${error.message}');
-        handler.next(error);
-      },
-    ));
-  }
-
-  void _registerAgents() {
-    // Will be expanded with more agents
-    // _agents['chat'] = ChatAgent();
-    // _agents['calendar'] = CalendarAgent();
-  }
-
-  // Main orchestration method
   Future<AgentResponse> processRequest(String message, {String? profession}) async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        throw Exception('User not authenticated');
-      }
-
-      // Get existing context and add profession
-      final context = await _buildContext();
-      if (profession != null && profession.isNotEmpty) {
-        context['profession'] = profession;  // Add this line
-      }
-
+      // Build enhanced request
       final request = AgentRequest(
         message: message,
-        userId: user.uid,
-        context: context,
+        userId: _getCurrentUserId(),
+        profession: profession,
+        context: await _buildEnhancedContext(profession),
         timestamp: DateTime.now(),
+        conversationHistory: [], // Will be populated later
       );
 
-      // Send to Python backend for intelligent routing
-      final response = await _dio.post(
-        '/api/agents/process',
-        data: request.toJson(),
-      );
+      // Use coordinator to process
+      final response = await _coordinator.processRequest(request);
 
-      return AgentResponse.fromJson(response.data);
+      return response;
     } catch (e) {
-      print('Orchestrator Error: $e');
       return AgentResponse(
-        agentName: 'Error',
-        response: 'Sorry, I encountered an error processing your request. Please try again.',
+        agentName: 'ErrorAgent',
+        response: 'Sorry, I encountered an error. Please try again.',
         type: AgentResponseType.text,
+        metadata: {'error': e.toString()},
       );
     }
   }
 
-
-  Future<Map<String, dynamic>> _buildContext() async {
-    // Build context from user profile and app state
-    final user = FirebaseAuth.instance.currentUser;
+  Future<Map<String, dynamic>> _buildEnhancedContext(String? profession) async {
     return {
-      'user_id': user?.uid,
+      'profession': profession ?? 'Unknown',
       'timestamp': DateTime.now().toIso8601String(),
-      'app_version': '1.0.0',
-      // Add more context as needed
+      'capabilities': _coordinator.getAgentCapabilities(),
     };
   }
 
-  // Get available agents
-  List<String> getAvailableAgents() {
-    return _agents.keys.toList();
-  }
-
-  // Health check
-  Future<bool> isHealthy() async {
-    try {
-      final response = await _dio.get('/api/health');
-      return response.statusCode == 200;
-    } catch (e) {
-      return false;
-    }
-  }
+  String _getCurrentUserId() => 'user_123'; // Replace with actual user ID
 }
