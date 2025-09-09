@@ -22,23 +22,19 @@ class TaskAgent extends BaseAgent {
   final List<String> _taskKeywords = [
     'task', 'todo', 'reminder', 'deadline', 'project',
     'assignment', 'homework', 'work', 'complete', 'finish',
-    'priority', 'urgent', 'schedule', 'plan', 'organize'
+    'priority', 'urgent', 'schedule', 'plan', 'organize',
+    'create task', 'add task', 'new task', 'make task',
+    'task to', 'need to do', 'have to do'
   ];
 
   @override
   bool canHandle(AgentRequest request) {
     final message = request.message.toLowerCase();
 
-    // Check for explicit task-related keywords
+    // Enhanced task detection
     if (hasKeywords(message, _taskKeywords)) return true;
-
-    // Check for task-related patterns
     if (_hasTaskPattern(message)) return true;
-
-    // Check context for task-related conversation
-    if (request.context['lastAgents']?.contains('TaskAgent') == true) {
-      return true;
-    }
+    if (request.context['lastAgents']?.contains('TaskAgent') == true) return true;
 
     return false;
   }
@@ -48,14 +44,14 @@ class TaskAgent extends BaseAgent {
     final message = request.message.toLowerCase();
     double score = 0.0;
 
-    // Keyword matching
+    // Enhanced scoring
     final matchedKeywords = _taskKeywords
         .where((keyword) => message.contains(keyword))
         .length;
-    score += (matchedKeywords / _taskKeywords.length) * 0.6;
+    score += (matchedKeywords / _taskKeywords.length) * 0.7;
 
-    // Pattern matching
-    if (_hasTaskPattern(message)) score += 0.3;
+    // Pattern matching bonus
+    if (_hasTaskPattern(message)) score += 0.2;
 
     // Context boost
     if (request.context['lastAgents']?.contains('TaskAgent') == true) {
@@ -89,9 +85,11 @@ class TaskAgent extends BaseAgent {
   }
 
   bool _hasTaskPattern(String message) {
+    // Enhanced task patterns
     final patterns = [
       RegExp(r'(need to|have to|should|must).+(do|complete|finish)'),
       RegExp(r'(create|add|make).+(task|todo|reminder)'),
+      RegExp(r'task.+to.+(finish|complete|do)'), // "task to finish" pattern
       RegExp(r'(remind me|set reminder)'),
       RegExp(r'(deadline|due date|due by)'),
     ];
