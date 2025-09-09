@@ -26,7 +26,13 @@ class GeneralAgent extends BaseAgent {
 
   final List<String> _personalInfoKeywords = [
     'my name', 'i am', 'call me', 'name is', 'what is my name',
-    'who am i', 'my profession', 'what do i do'
+    'who am i', 'my profession', 'what do i do', 'remember my name'
+  ];
+
+  final List<String> _exportKeywords = [
+    'export', 'download', 'save chat', 'save conversation', 'export history',
+    'download chat', 'download conversation', 'export conversation',
+    'export chat history', 'download chat history', 'export conversation history'
   ];
 
   @override
@@ -36,6 +42,7 @@ class GeneralAgent extends BaseAgent {
     // Always can handle as fallback (but with lower confidence)
     if (_isGreeting(message)) return true;
     if (_isPersonalInfo(message)) return true;
+    if (_isExportQuery(message)) return true; // Added export query check)
     if (_isGeneralQuery(message)) return true;
 
     return true; // General agent can handle anything as fallback
@@ -49,6 +56,7 @@ class GeneralAgent extends BaseAgent {
     // High confidence for specific patterns
     if (_isGreeting(message)) score = 0.9;
     else if (_isPersonalInfo(message)) score = 0.8;
+    else if (_isExportQuery(message)) score = 0.85; // added export confidence
     else if (_isGeneralQuery(message)) score = 0.6;
     else score = 0.3; // Low confidence for fallback
 
@@ -63,6 +71,8 @@ class GeneralAgent extends BaseAgent {
       return _handleGreeting(request);
     } else if (_isPersonalInfo(message)) {
       return _handlePersonalInfo(request);
+    } else if (_isExportQuery(message)) {
+      return _handleExportQuery(request);
     } else if (_isGeneralQuery(message)) {
       return _handleGeneralQuery(request);
     } else {
@@ -84,6 +94,10 @@ class GeneralAgent extends BaseAgent {
       'tell me', 'explain', 'how to', 'why'
     ];
     return generalPatterns.any((pattern) => message.contains(pattern));
+  }
+
+  bool _isExportQuery(String message) {
+    return _exportKeywords.any((keyword) => message.contains(keyword));
   }
 
   Future<AgentResponse> _handleGreeting(AgentRequest request) async {
@@ -117,42 +131,46 @@ class GeneralAgent extends BaseAgent {
     if (message.contains('my name is') || message.contains('i am') || message.contains('call me')) {
       final name = _extractName(message);
       if (name.isNotEmpty) {
-        // Store name in context/memory (would integrate with your memory system)
+        // This should trigger backend storage
         return AgentResponse(
           agentName: agentName,
-          response: "Nice to meet you, $name! I'll remember that. "
+          response: "Nice to meet you, $name! I'll remember your name for our future conversations. "
               "I'm here to help you with your ${request.profession ?? 'work'}. "
               "What would you like to do today?",
           type: AgentResponseType.text,
           metadata: {
             'intent': 'name_provided',
             'name': name,
-            'action': 'store_user_name'
+            'action': 'store_user_name',
+            'should_store': true, // Flag for backend storage
           },
           suggestedActions: [
             'Create a task',
             'Get productivity tips',
-            'Check what I can help with',
+            'Show my calendar',
           ],
-          confidence: 0.8,
+          confidence: 0.9,
         );
       }
     }
 
-    // Check if user is asking for their name
+    // Enhanced name query handling
     if (message.contains('what is my name') || message.contains('who am i')) {
-      // Would fetch from memory system
       return AgentResponse(
         agentName: agentName,
         response: "I don't have your name stored yet. You can tell me by saying "
-            "'My name is [your name]' and I'll remember it for our future conversations!",
+            "'My name is [your name]' and I'll remember it for future conversations!",
         type: AgentResponseType.text,
-        metadata: {'intent': 'name_query'},
+        metadata: {
+          'intent': 'name_query',
+          'action': 'request_name',
+        },
         suggestedActions: [
-          'Tell me your name',
-          'Ask what I can help with',
+          'My name is Sam',
+          'Call me John',
+          'Ask what you can help with',
         ],
-        confidence: 0.8,
+        confidence: 0.9,
       );
     }
 
@@ -197,20 +215,44 @@ class GeneralAgent extends BaseAgent {
     );
   }
 
+  Future<AgentResponse> _handleExportQuery(AgentRequest request) async {
+    return AgentResponse(
+      agentName: agentName,
+      response: "I can help you export your chat history! Your conversations and data can be exported in different formats:\n\n"
+          "📋 **Text Format** - Simple readable format\n"
+          "📊 **JSON Format** - Complete data with metadata\n"
+          "💾 **Backup Format** - Full conversation backup\n\n"
+          "Would you like me to prepare your export?",
+      type: AgentResponseType.text,
+      metadata: {
+        'intent': 'export_request',
+        'action': 'prepare_export',
+      },
+      suggestedActions: [
+        'Export as text',
+        'Export as JSON',
+        'Create backup',
+        'Cancel export',
+      ],
+      confidence: 0.85,
+    );
+  }
+
   String _extractName(String message) {
-    // Simple name extraction patterns
     final patterns = [
-      RegExp(r'my name is (\w+)', caseSensitive: false),
-      RegExp(r'i am (\w+)', caseSensitive: false),
-      RegExp(r'call me (\w+)', caseSensitive: false),
+      RegExp(r'my name is (\w+(?:\s+\w+)*)', caseSensitive: false),
+      RegExp(r'i am (\w+(?:\s+\w+)*)', caseSensitive: false),
+      RegExp(r'call me (\w+(?:\s+\w+)*)', caseSensitive: false),
     ];
 
     for (final pattern in patterns) {
       final match = pattern.firstMatch(message);
       if (match != null) {
-        return match.group(1)?.trim().toLowerCase().split(' ').map((word) =>
-        word.isNotEmpty ? word[0].toUpperCase() + word.substring(1) : word
-        ).join(' ') ?? '';
+        final nameStr = match.group(1)?.trim() ?? '';
+        // Capitalize each word
+        return nameStr.split(' ').map((word) =>
+        word.isNotEmpty ? word[0].toUpperCase() + word.substring(1).toLowerCase() : word
+        ).join(' ');
       }
     }
 

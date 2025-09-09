@@ -3,10 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
+from memory_manager import memory_manager
 import re
 import uvicorn
 import logging
 import sqlite3
+# import openai
+from openai import OpenAI
 
 # Set up proper logging
 logging.basicConfig(
@@ -21,6 +24,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Configure OpenRouter client
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key="YOUR_OPENROUTER_API_KEY"  # Store in environment variable
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,7 +40,7 @@ app.add_middleware(
 
 # Try to import memory system
 try:
-    from memory_manager import memory_manager
+    # from memory_manager import memory_manager
     MEMORY_ENABLED = True
     logger.info("🧠 Memory system loaded successfully!")
 except ImportError as e:
@@ -548,6 +557,67 @@ async def export_chat(request: Request):
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+@app.post("/api/agents/process")
+async def process_agent_request(request: AgentRequest):
+    try:
+        # Get user context from memory
+        user_context = await memory_manager.get_user_context(request.user_id)
+
+        # Build profession-specific prompt
+        system_prompt = f"""You are Agent X, a helpful AI assistant specialized in helping {request.context.get('profession', 'professionals')}. 
+
+Context about the user:
+- Profession: {request.context.get('profession', 'Unknown')}
+- Previous conversations: {len(user_context.get('recent_conversations', []))}
+
+You can help with:
+- Task management and productivity
+- Calendar scheduling and time management  
+- Professional development and learning
+- Industry news and updates
+- General work-related questions
+
+Respond in a helpful, professional tone. If the user asks about calendar events, tasks, or scheduling, provide specific actionable responses.
+"""
+
+        # Call OpenRouter API
+        response = client.chat.completions.create(
+            model="anthropic/claude-3.5-sonnet",  # or another model
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": request.message}
+            ],
+            temperature=0.7,
+            max_tokens=500
+        )
+
+        ai_response = response.choices[0].message.content
+
+        # Store conversation in memory
+        await memory_manager.store_conversation(
+            user_id=request.user_id,
+            message_id=f"{request.user_id}_{datetime.now().timestamp()}",
+            user_message=request.message,
+            agent_response=ai_response,
+            agent_name="AgentX-AI",
+            metadata={"model": "claude-3.5-sonnet", "profession": request.context.get('profession')}
+        )
+
+        return AgentResponse(
+            agent_name="AgentX-AI",
+            response=ai_response,
+            type="ai_powered",
+            metadata={"ai_enhanced": True}
+        )
+
+    except Exception as e:
+        return AgentResponse(
+            agent_name="ErrorAgent",
+            response="I apologize, but I'm having trouble processing your request right now.",
+            type="error"
+        )
+
 
 if __name__ == "__main__":
     uvicorn.run(

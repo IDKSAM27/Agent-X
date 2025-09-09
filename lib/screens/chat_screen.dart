@@ -6,6 +6,7 @@ import '../core/config/api_config.dart';
 import '../core/agents/agent_orchestrator.dart';
 import '../models/chat_message.dart';
 import '../widgets/enhanced_chat_bubble.dart';
+import '../core/agents/hybrid_orchestrator.dart';
 
 class ChatScreen extends StatefulWidget {
   final String profession; // Restored profession parameter
@@ -481,11 +482,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _scrollToBottom();
 
     try {
-      final orchestrator = AgentOrchestrator();
-      // Pass profession context to the orchestrator
+      // Use HybridOrchestrator instead of AgentOrchestrator
+      final orchestrator = HybridOrchestrator();
       final agentResponse = await orchestrator.processRequest(
         text,
-        profession: widget.profession, // Pass profession for context-aware responses
+        profession: widget.profession,
       );
 
       final assistantMessage = ChatMessage(
@@ -513,8 +514,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       });
 
       _showErrorMessage('Failed to send message. Please try again.');
+      print('Send message error: $e');
     }
   }
+
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
