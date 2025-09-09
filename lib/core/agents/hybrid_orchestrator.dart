@@ -115,13 +115,15 @@ class HybridOrchestrator {
   bool _isSimpleLocalQuery(String message) {
     final msg = message.toLowerCase();
 
-    // Only these very simple queries should use local agents
-    final simpleKeywords = [
-      'hi', 'hello', 'hey', 'good morning', 'good afternoon',
-      'my name is', 'what is my name', 'who am i', 'call me'
+    // Enhanced simple query detection
+    final simplePatterns = [
+      RegExp(r'^(hi|hello|hey)(\s|$)'),
+      RegExp(r'good (morning|afternoon|evening)'),
+      RegExp(r'(my name is|i am|call me)\s+\w+'), // Name setting
+      RegExp(r'(what is my name|who am i)(\?)?$'), // Name asking
     ];
 
-    final isSimple = simpleKeywords.any((keyword) => msg.contains(keyword));
+    final isSimple = simplePatterns.any((pattern) => pattern.hasMatch(msg));
     print('🏠 Simple query check: $isSimple');
     return isSimple;
   }
