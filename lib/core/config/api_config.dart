@@ -1,6 +1,6 @@
 class ApiConfig {
   // Development configuration
-  static const String baseUrl = "http://192.168.1.8:8000"; // Local machine's IP btw.. you dumb fuq
+  static const String baseUrl = "http://192.168.1.6:8000"; // Local machine's IP btw.. you dumb fuq
 
   // API endpoints
   static const String agentsEndpoint = "/api/agents";

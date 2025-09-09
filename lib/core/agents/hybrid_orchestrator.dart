@@ -70,15 +70,16 @@ class HybridOrchestrator {
   bool _shouldUseBackend(String message) {
     final msg = message.toLowerCase();
 
-    // Backend keywords - these should ALWAYS go to Python backend
+    // Enhanced backend keywords - more comprehensive
     final backendKeywords = [
       // Calendar & Events
       'calendar', 'schedule', 'meeting', 'event', 'appointment',
       'book', 'reserve', 'plan', 'when', 'time', 'date',
 
-      // Tasks & Productivity
+      // Tasks & Productivity, added missing task keywords
       'task', 'todo', 'reminder', 'deadline', 'project',
-      'complete', 'finish', 'due', 'priority',
+      'complete', 'finish', 'due', 'priority', 'create task',
+      'add task', 'make task', 'new task', 'task to',
 
       // Communication
       'email', 'mail', 'send', 'message', 'contact',
@@ -87,19 +88,22 @@ class HybridOrchestrator {
       'news', 'update', 'learn', 'explain', 'how to', 'what is',
       'tell me about', 'help with', 'show me',
 
-      // Memory & Data
+      // Memory & Data, added export keywords
       'remember', 'save', 'store', 'recall', 'history',
-      'delete', 'clear', 'export'
+      'delete', 'clear', 'export', 'download', 'backup',
+      'export chat', 'save chat', 'download chat'
     ];
 
     final hasBackendKeyword = backendKeywords.any((keyword) => msg.contains(keyword));
 
-    // Also check for backend patterns
+    // Enhanced backend patterns
     final backendPatterns = [
       RegExp(r'(create|add|make).+(task|event|meeting|appointment)'),
       RegExp(r'(show|list|view).+(tasks|events|calendar|schedule)'),
       RegExp(r'(what|when|how).+(my|is|do|can)'),
       RegExp(r'(remind|schedule|plan).+me'),
+      RegExp(r'(export|download|save).+(chat|conversation|history)'), // Export pattern
+      RegExp(r'task.+to.+(finish|complete|do)'), // "task to finish" pattern
     ];
 
     final hasBackendPattern = backendPatterns.any((pattern) => pattern.hasMatch(msg));
