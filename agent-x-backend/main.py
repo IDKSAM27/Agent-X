@@ -568,152 +568,145 @@ async def process_agent_request(request: Request):
         context = body.get('context', {})
         profession = context.get('profession', 'Unknown')
 
-        print(f"🐍 Backend processing: '{message}'")
+        logger.info(f"🐍 Backend processing: '{message}' for user {user_id}")
 
-        # CRITICAL: Return structured JSON response, not plain text
-        if 'task' in message and ('create' in message or 'finish' in message):
-            return {
-                "agent_name": "TaskAgent",
-                "response": f"✅ **Task Created Successfully!**\n\n📋 **Task:** {message.replace('create task to', '').strip()}\n👤 **For:** {profession}\n📅 **Created:** Just now\n\nYour task has been added!",
-                "type": "task",
-                "metadata": {"action": "task_created", "source": "backend"},
-                "suggested_actions": ["Set deadline", "View tasks"],
-                "confidence": 0.95
-            }
-
-        elif 'export' in message or 'download' in message:
-            return {
-                "agent_name": "ExportAgent",
-                "response": "📦 **Chat Export Ready!**\n\n📊 **Summary:**\n• Total conversations: 15\n• Format: JSON with metadata\n• Ready for download\n\nYour chat export is prepared!",
-                "type": "text",
-                "metadata": {"action": "export_ready", "source": "backend"},
-                "suggested_actions": ["Download now", "Cancel"],
-                "confidence": 0.9
-            }
-
-        elif 'what is my name' in message or 'who am i' in message:
-            return {
-                "agent_name": "PersonalAgent",
-                "response": "🤔 **I don't know your name yet.**\n\nYou can tell me by saying:\n• \"My name is John\"\n• \"Call me Sarah\"\n\nOnce you tell me, I'll remember it!",
-                "type": "text",
-                "metadata": {"action": "name_query", "source": "backend"},
-                "suggested_actions": ["My name is...", "Skip for now"],
-                "confidence": 0.9
-            }
-
-        elif 'calendar' in message or 'schedule' in message:
-            return {
-                "agent_name": "CalendarAgent",
-                "response": f"📅 **Calendar for {profession}**\n\nHere's your schedule:\n• 9:00 AM - Team meeting\n• 2:00 PM - Project review\n• 4:00 PM - Client call\n\nWould you like to add an event?",
-                "type": "calendar",
-                "metadata": {"action": "calendar_show", "source": "backend"},
-                "suggested_actions": ["Add event", "View week"],
-                "confidence": 0.9
-            }
-
+        # ✅ FIXED: Enhanced intent classification
+        if _is_task_creation_intent(message):
+            return _create_task_response(message, profession)
+        elif _is_name_query_intent(message):
+            return _handle_name_query_response(user_id)
+        elif _is_export_intent(message):
+            return _create_export_response()
+        elif _is_calendar_intent(message):
+            return _create_calendar_response(profession)
         else:
-            # FALLBACK: Structured response, not plain text
-            return {
-                "agent_name": "GeneralAgent",
-                "response": f"Hello! I'm your AI assistant for {profession}s.\n\nI can help with:\n📋 Task Management\n📅 Calendar\n💾 Data Export\n👤 Personal Info\n\nWhat would you like to do?",
-                "type": "text",
-                "metadata": {"source": "backend"},
-                "suggested_actions": ["Create task", "Show calendar", "Export data"],
-                "confidence": 0.7
-            }
+            return _create_general_response(profession, message)
 
     except Exception as e:
-        print(f"❌ Backend error: {e}")
-        return {
-            "agent_name": "ErrorAgent",
-            "response": "I apologize, but I encountered an issue. Please try again.",
-            "type": "error",
-            "metadata": {"error": str(e), "source": "backend"},
-            "confidence": 0.1
-        }
+        logger.error(f"❌ Backend error: {e}")
+        return _create_error_response()
 
-
-# Intent detection functions
-def _is_task_intent(message: str) -> bool:
-    task_keywords = ['create task', 'task to', 'add task', 'make task', 'new task', 'finish', 'complete']
-    return any(keyword in message for keyword in task_keywords)
-
-def _is_export_intent(message: str) -> bool:
-    export_keywords = ['export', 'download', 'save chat', 'backup', 'export chat']
-    return any(keyword in message for keyword in export_keywords)
+# ✅ FIXED: Better intent detection functions
+def _is_task_creation_intent(message: str) -> bool:
+    task_indicators = [
+        'create task', 'create a task', 'add task', 'add a task',
+        'make task', 'make a task', 'new task', 'task to finish',
+        'task to complete', 'task to do', 'finish project',
+        'complete project', 'work on project'
+    ]
+    return any(indicator in message for indicator in task_indicators)
 
 def _is_name_query_intent(message: str) -> bool:
-    name_keywords = ['what is my name', 'who am i', 'my name']
-    return any(keyword in message for keyword in name_keywords)
+    name_indicators = [
+        'what is my name', 'whats my name', 'who am i',
+        'what am i called', 'my name is', 'tell me my name'
+    ]
+    return any(indicator in message for indicator in name_indicators)
+
+def _is_export_intent(message: str) -> bool:
+    export_indicators = [
+        'export', 'download', 'save chat', 'backup',
+        'export chat', 'download chat'
+    ]
+    return any(indicator in message for indicator in export_indicators)
 
 def _is_calendar_intent(message: str) -> bool:
-    calendar_keywords = ['calendar', 'schedule', 'meeting', 'show me calendar']
-    return any(keyword in message for keyword in calendar_keywords)
+    calendar_indicators = [
+        'calendar', 'schedule', 'show calendar', 'my calendar',
+        'show me calendar', 'view calendar'
+    ]
+    return any(indicator in message for indicator in calendar_indicators)
 
-# Structured response handlers
-def _handle_task_creation(message: str, user_id: str, profession: str):
-    task_title = message.replace('create task to', '').replace('task to', '').strip()
+# ✅ FIXED: Specialized response creators
+def _create_task_response(message: str, profession: str):
+    task_title = _extract_task_from_message(message)
 
     return {
         "agent_name": "TaskAgent",
-        "response": f"✅ **Task Created Successfully!**\n\n📋 **Task:** {task_title}\n👤 **For:** {profession}\n📅 **Created:** Just now\n\nYour task has been added to your list!",
+        "response": f"✅ **Task Created Successfully!**\n\n"
+                    f"📋 **Task:** {task_title}\n"
+                    f"👤 **For:** {profession}\n"
+                    f"📅 **Created:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+                    f"Your task has been added to your list!",
         "type": "task",
         "metadata": {
             "action": "task_created",
             "task_title": task_title,
             "source": "backend"
         },
-        "suggested_actions": ["Set deadline", "Set priority", "View all tasks"],
-        "confidence": 0.95
+        "suggested_actions": ["Set deadline", "Add priority", "View all tasks"],
+        "requires_follow_up": False
     }
 
-def _handle_export_request(message: str, user_id: str):
+def _handle_name_query_response(user_id: str):
+    # Try to get stored name (you can implement this with your memory system)
+    stored_name = None  # Replace with actual memory lookup
+
+    if stored_name:
+        return {
+            "agent_name": "PersonalAgent",
+            "response": f"👋 **Hello {stored_name}!**\n\n"
+                        f"I remember you! Your name is **{stored_name}**.",
+            "type": "text",
+            "metadata": {"action": "name_retrieved", "name": stored_name},
+            "suggested_actions": ["Update my name", "Create a task"],
+            "requires_follow_up": False
+        }
+    else:
+        return {
+            "agent_name": "PersonalAgent",
+            "response": "🤔 **I don't know your name yet.**\n\n"
+                        "You can tell me by saying:\n"
+                        "• \"My name is John\"\n"
+                        "• \"Call me Sarah\"\n\n"
+                        "Once you tell me, I'll remember it!",
+            "type": "text",
+            "metadata": {"action": "name_request"},
+            "suggested_actions": ["My name is...", "Call me...", "Skip for now"],
+            "requires_follow_up": False
+        }
+
+def _create_export_response():
     return {
         "agent_name": "ExportAgent",
-        "response": f"📦 **Chat Export Ready!**\n\n📊 **Summary:**\n• Export prepared for user {user_id}\n• Format: Complete conversation history\n• Ready for download\n\nYour chat history export is now available!",
+        "response": "📦 **Chat Export Ready!**\n\n"
+                    "📊 **Summary:**\n"
+                    "• Total conversations: 25\n"
+                    "• Format: JSON with metadata\n"
+                    "• Ready for download\n\n"
+                    "Your chat export is prepared!",
         "type": "text",
-        "metadata": {
-            "action": "export_prepared",
-            "source": "backend"
-        },
-        "suggested_actions": ["Download export", "Export as text", "Cancel"],
-        "confidence": 0.9
+        "metadata": {"action": "export_ready"},
+        "suggested_actions": ["Download now", "Export as text", "Cancel"],
+        "requires_follow_up": False
     }
 
-def _handle_name_query(message: str, user_id: str):
-    return {
-        "agent_name": "PersonalAgent",
-        "response": f"🤔 **Name Query**\n\nI don't have your name stored yet. You can tell me by saying:\n• \"My name is John\"\n• \"Call me Sarah\"\n\nOnce you tell me, I'll remember it!",
-        "type": "text",
-        "metadata": {
-            "action": "name_request",
-            "source": "backend"
-        },
-        "suggested_actions": ["My name is...", "Call me...", "Skip for now"],
-        "confidence": 0.9
-    }
-
-def _handle_calendar_request(message: str, user_id: str, profession: str):
+def _create_calendar_response(profession: str):
     return {
         "agent_name": "CalendarAgent",
-        "response": f"📅 **Calendar for {profession}**\n\nHere's your schedule:\n• 9:00 AM - Team meeting\n• 2:00 PM - Project review\n• 4:00 PM - Client call\n\nWould you like to add a new event?",
+        "response": f"📅 **Calendar for {profession}**\n\n"
+                    f"You don't have any scheduled events yet. "
+                    f"Would you like to create one?",
         "type": "calendar",
-        "metadata": {
-            "action": "calendar_displayed",
-            "source": "backend"
-        },
-        "suggested_actions": ["Add event", "View week", "Set reminder"],
-        "confidence": 0.9
+        "metadata": {"action": "empty_calendar"},
+        "suggested_actions": ["Schedule a meeting", "Add personal event", "Set reminder"],
+        "requires_follow_up": False
     }
 
-def _handle_generic_query(message: str, user_id: str, profession: str):
+def _create_general_response(profession: str, message: str):
     return {
         "agent_name": "GeneralAgent",
-        "response": f"Hello! I'm your AI assistant for {profession}s.\n\nI can help with:\n📋 Task Management\n📅 Calendar\n💾 Data Export\n👤 Personal Info\n\nWhat would you like to do?",
+        "response": f"Hello! I'm your AI assistant for {profession}s.\n\n"
+                    f"I can help with:\n"
+                    f"📋 Task Management\n"
+                    f"📅 Calendar\n"
+                    f"💾 Data Export\n"
+                    f"👤 Personal Info\n\n"
+                    f"What would you like to do?",
         "type": "text",
-        "metadata": {"source": "backend"},
+        "metadata": {"intent": "general_help"},
         "suggested_actions": ["Create a task", "Show calendar", "Export data"],
-        "confidence": 0.7
+        "requires_follow_up": False
     }
 
 def _create_error_response():
@@ -721,9 +714,22 @@ def _create_error_response():
         "agent_name": "ErrorAgent",
         "response": "I apologize, but I encountered an issue. Please try again.",
         "type": "error",
-        "metadata": {"source": "backend"},
-        "confidence": 0.1
+        "metadata": {"error": "processing_failed"},
+        "requires_follow_up": False
     }
+
+def _extract_task_from_message(message: str) -> str:
+    # Simple extraction logic
+    if 'task to' in message:
+        return message.split('task to')[-1].strip()
+    elif 'finish' in message or 'complete' in message:
+        if 'project' in message:
+            return 'finish the project'
+        elif 'work' in message:
+            return 'complete the work'
+
+    return 'Complete the task'
+
 
 if __name__ == "__main__":
     uvicorn.run(
