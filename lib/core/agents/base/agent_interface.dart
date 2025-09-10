@@ -87,6 +87,45 @@ class AgentResponse {
     this.confidence = 1.0,
     this.requiresFollowUp = false,
   });
+
+  /// Factory constructor for JSON deserialization
+  factory AgentResponse.fromJson(Map<String, dynamic> json) {
+    return AgentResponse(
+      agentName: json['agent_name'] ?? 'UnknownAgent',
+      response: json['response'] ?? 'No response',
+      type: _parseResponseType(json['type']),
+      metadata: Map<String, dynamic>.from(json['metadata'] ?? {}),
+      suggestedActions: List<String>.from(json['suggested_actions'] ?? []),
+      involvedAgents: json['involved_agents'] != null
+          ? List<String>.from(json['involved_agents'])
+          : (json['agent_name'] != null ? [json['agent_name']] : ['UnknownAgent']),
+      confidence: (json['confidence'] is double)
+          ? json['confidence']
+          : (json['confidence'] ?? 1.0).toDouble(),
+      requiresFollowUp: json['requires_follow_up'] ?? false,
+    );
+  }
+
+  /// Helper method to parse response type from string
+  static AgentResponseType _parseResponseType(String? type) {
+    switch (type?.toLowerCase()) {
+      case 'task':
+        return AgentResponseType.task;
+      case 'calendar':
+        return AgentResponseType.calendar;
+      case 'news':
+        return AgentResponseType.news;
+      case 'learning':
+        return AgentResponseType.learning;
+      case 'multiagent':
+        return AgentResponseType.multiAgent;
+      case 'suggestion':
+        return AgentResponseType.suggestion;
+      case 'text':
+      default:
+        return AgentResponseType.text;
+    }
+  }
 }
 
 enum AgentResponseType {
