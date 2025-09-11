@@ -320,7 +320,6 @@ async def handle_calendar_list(user_id: str):
         "requires_follow_up": False
     }
 
-
 def handle_calendar_help():
     return {
         "agent_name": "CalendarAgent",
