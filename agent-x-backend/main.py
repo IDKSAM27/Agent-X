@@ -1,12 +1,11 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 import logging
 import uvicorn
 import sqlite3
-import json
 import os
 
 logging.basicConfig(level=logging.INFO)
@@ -22,15 +21,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database setup
-DB_PATH = "agent_x.db"
+# Absolute DB path for reliability
+DB_PATH = os.path.join(os.path.dirname(__file__), "agent_x.db")
 
 def init_database():
-    """Initialize SQLite database with required tables"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
-    # Users table for names and preferences
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id TEXT PRIMARY KEY,
@@ -40,8 +36,6 @@ def init_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-
-    # Tasks table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,8 +49,6 @@ def init_database():
             completed_at TIMESTAMP
         )
     ''')
-
-    # Calendar events table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS calendar_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,15 +61,12 @@ def init_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-
     conn.commit()
     conn.close()
     logger.info("✅ Database initialized successfully")
 
-# Initialize database on startup
 init_database()
 
-# Models (same as before)
 class AgentRequest(BaseModel):
     message: str
     user_id: str
@@ -102,7 +91,6 @@ async def process_agent(request: Request):
 
     logger.info(f"Processing: '{message}' from {user_id}")
 
-    # Enhanced routing with task separation
     if any(phrase in message for phrase in ["my name is", "call me", "i am"]):
         return handle_name_storage(message, user_id, profession)
     elif any(phrase in message for phrase in ["what is my name", "who am i", "what am i called"]):
@@ -115,108 +103,55 @@ async def process_agent(request: Request):
         return handle_task_list(message, user_id)
     elif any(word in message for word in ["complete task", "finish task", "done task"]):
         return handle_task_completion(message, user_id)
-    elif any(word in message for word in ["calendar", "schedule", "event", "meeting"]):
-        return await handle_calendar(message, user_id)
+    elif any(word in message for word in ["schedule", "meeting", "add event", "create event"]):
+        return await handle_calendar_create(message, user_id)
+    elif any(word in message for word in ["list events", "show events", "view events", "my calendar"]):
+        return await handle_calendar_list(user_id)
+    elif any(word in message for word in ["calendar", "event"]):
+        return handle_calendar_help()
     else:
         return handle_general(message, user_id, profession)
 
-# Database helper functions
+# Name storage/retrieval functions
+def save_user_name(user_id: str, name: str, profession: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO users (user_id, name, profession) VALUES (?, ?, ?)', (user_id, name, profession))
+    conn.commit()
+    conn.close()
+    logger.info(f"✅ Saved name: {name} for user {user_id}")
+
 def get_user_name(user_id: str) -> str:
-    """Get user name from database"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('SELECT name FROM users WHERE user_id = ?', (user_id,))
-        row = cursor.fetchone()
-        conn.close()
-        name = row[0] if row else ""
-        logger.info(f"📋 Retrieved name: {name} for user {user_id}")
-        return name
-    except Exception as e:
-        logger.error(f"❌ Error getting name: {e}")
-        return ""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('SELECT name FROM users WHERE user_id = ?', (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    name = row[0] if row else ""
+    logger.info(f"📋 Retrieved name: {name} for user {user_id}")
+    return name
 
-def save_user_name(user_id: str, name: str):
-    """Save user name to database"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('INSERT OR REPLACE INTO users (user_id, name) VALUES (?, ?)', (user_id, name))
-        conn.commit()
-        conn.close()
-        logger.info(f"✅ Saved name: {name} for user {user_id}")
-        return True
-    except Exception as e:
-        logger.error(f"❌ Error saving name: {e}")
-        return False
-
-def save_task(user_id: str, title: str, description: str = "", priority: str = "medium"):
-    """Save task to database"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO tasks (user_id, title, description, priority)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, title, description, priority))
-        conn.commit()
-        task_id = cursor.lastrowid
-        conn.close()
-        logger.info(f"✅ Saved task: {title}")
-        return task_id
-    except Exception as e:
-        logger.error(f"Error saving task: {e}")
-        return None
-
-def get_user_tasks(user_id: str, status: str = "pending"):
-    """Get user tasks from database"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id, title, description, priority, created_at, due_date 
-            FROM tasks WHERE user_id = ? AND status = ?
-            ORDER BY created_at DESC
-        ''', (user_id, status))
-        tasks = cursor.fetchall()
-        conn.close()
-        return tasks
-    except Exception as e:
-        logger.error(f"Error getting tasks: {e}")
-        return []
-
-# FIXED: Enhanced name handlers
-def handle_name_storage(message: str, user_id: str, profession: str):
-    """Handle when user provides their name"""
-    name = ""
-
+def extract_name(message: str):
     if "my name is" in message:
-        name = message.split("my name is")[-1].strip().title()
+        return message.split("my name is")[-1].split(".")[0].strip().title()
     elif "call me" in message:
-        name = message.split("call me")[-1].strip().title()
+        return message.split("call me")[-1].split(".")[0].strip().title()
     elif "i am" in message and not "who am i" in message:
-        name = message.split("i am")[-1].strip().title()
+        return message.split("i am")[-1].split(".")[0].strip().title()
+    return ""
 
-    if name and len(name.split()) <= 3:  # Reasonable name length
-        success = save_user_name(user_id, name)
-        if success:
-            return {
-                "agent_name": "PersonalAgent",
-                "response": f"Perfect! Nice to meet you, {name}. I've saved your name and will remember it permanently!",
-                "type": "text",
-                "metadata": {"action": "name_stored", "name": name},
-                "suggested_actions": ["What can you help me with?", "Create a task", "Show my tasks"],
-                "requires_follow_up": False
-            }
-        else:
-            return {
-                "agent_name": "PersonalAgent",
-                "response": "I had trouble saving your name. Please try again.",
-                "type": "text",
-                "metadata": {"action": "name_save_failed"},
-                "requires_follow_up": False
-            }
-
+def handle_name_storage(message: str, user_id: str, profession: str):
+    name = extract_name(message)
+    if name and len(name.split()) <= 4:
+        save_user_name(user_id, name, profession)
+        return {
+            "agent_name": "PersonalAgent",
+            "response": f"Perfect! Nice to meet you, {name}. I've saved your name and will remember it permanently!",
+            "type": "text",
+            "metadata": {"action": "name_stored", "name": name},
+            "suggested_actions": ["What can you help me with?", "Create a task", "Show my tasks"],
+            "requires_follow_up": False
+        }
     return {
         "agent_name": "PersonalAgent",
         "response": "I didn't catch your name clearly. Please say 'My name is [Your Full Name]'",
@@ -226,9 +161,7 @@ def handle_name_storage(message: str, user_id: str, profession: str):
     }
 
 def handle_name_query(message: str, user_id: str):
-    """Handle when user asks for their name"""
     stored_name = get_user_name(user_id)
-
     if stored_name:
         return {
             "agent_name": "PersonalAgent",
@@ -248,25 +181,42 @@ def handle_name_query(message: str, user_id: str):
             "requires_follow_up": False
         }
 
+# Persistent tasks
+def save_task(user_id: str, title: str, description: str = "", priority: str = "medium"):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO tasks (user_id, title, description, priority)
+        VALUES (?, ?, ?, ?)
+    ''', (user_id, title, description, priority))
+    conn.commit()
+    task_id = cursor.lastrowid
+    conn.close()
+    logger.info(f"✅ Saved task: {title}")
+    return task_id
 
-# Enhanced task handlers with persistence
+def get_user_tasks(user_id: str, status: str = "pending"):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, title, description, priority, created_at, due_date 
+        FROM tasks WHERE user_id = ? AND status = ?
+        ORDER BY created_at DESC
+    ''', (user_id, status))
+    tasks = cursor.fetchall()
+    conn.close()
+    return tasks
+
 def handle_task_creation(message: str, user_id: str, profession: str):
-    """Handle task creation with database storage"""
-    # Extract task title
-    task_title = message.replace("create task", "").replace("add task", "").replace("task to", "").strip()
+    task_title = message.replace("create task", "").replace("add task", "").replace("task to", "").replace("new task", "").strip()
     if not task_title or task_title == "to":
         task_title = "Complete the project"
-
-    # Extract priority if mentioned
     priority = "medium"
     if "urgent" in message or "high priority" in message:
         priority = "high"
     elif "low priority" in message:
         priority = "low"
-
-    # Save to database
     task_id = save_task(user_id, task_title, "", priority)
-
     return {
         "agent_name": "TaskAgent",
         "response": f"✅ **Task Created & Saved!**\n\n📋 **Task:** {task_title}\n👤 **For:** {profession}\n🎯 **Priority:** {priority.title()}\n📅 **Created:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\nYour task has been saved permanently!",
@@ -277,9 +227,7 @@ def handle_task_creation(message: str, user_id: str, profession: str):
     }
 
 def handle_task_list(message: str, user_id: str):
-    """Handle task listing from database"""
     tasks = get_user_tasks(user_id)
-
     if not tasks:
         return {
             "agent_name": "TaskAgent",
@@ -289,14 +237,11 @@ def handle_task_list(message: str, user_id: str):
             "suggested_actions": ["Create a task", "Add reminder", "Plan my day"],
             "requires_follow_up": False
         }
-
-    # Format task list
     tasks_text = f"📋 **Your Tasks ({len(tasks)} pending):**\n\n"
     for i, task in enumerate(tasks, 1):
         task_id, title, description, priority, created_at, due_date = task
         priority_emoji = "🔥" if priority == "high" else "⚡" if priority == "medium" else "📝"
         tasks_text += f"{i}. {priority_emoji} **{title}**\n   Created: {created_at[:10]}\n\n"
-
     return {
         "agent_name": "TaskAgent",
         "response": tasks_text,
@@ -307,7 +252,6 @@ def handle_task_list(message: str, user_id: str):
     }
 
 def handle_task_completion(message: str, user_id: str):
-    """Handle task completion"""
     return {
         "agent_name": "TaskAgent",
         "response": "🎉 **Task completed!** Great job staying productive!\n\nTo mark specific tasks as complete, try: 'Complete task [task name]'",
@@ -317,9 +261,74 @@ def handle_task_completion(message: str, user_id: str):
         "requires_follow_up": False
     }
 
-# Other handlers (export, calendar, general) - same as before
+# Persistent calendar events
+def save_event(user_id: str, title: str, date: str, time_: str = "10:00"):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO calendar_events (user_id, title, start_time) VALUES (?, ?, ?)',
+        (user_id, title, f"{date} {time_}"))
+    conn.commit()
+    event_id = cursor.lastrowid
+    conn.close()
+    logger.info(f"✅ Event saved: {title} for {date} {time_}")
+    return event_id
+
+def get_all_events(user_id: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('SELECT title, start_time FROM calendar_events WHERE user_id = ?', (user_id,))
+    events = cursor.fetchall()
+    conn.close()
+    return events
+
+async def handle_calendar_create(message: str, user_id: str):
+    # Simple logic: any schedule/create gets a 'Meeting' on today at 10:00
+    date = datetime.now().strftime("%Y-%m-%d")
+    event_id = save_event(user_id, "Meeting", date, "10:00")
+    return {
+        "agent_name": "CalendarAgent",
+        "response": f"✅ Successfully created event: 'Meeting' on {date} at 10:00",
+        "type": "calendar",
+        "metadata": {"action": "event_created", "event_id": event_id, "date": date},
+        "suggested_actions": ["View my calendar", "Create another event", "Set reminder"],
+        "requires_follow_up": False
+    }
+
+async def handle_calendar_list(user_id: str):
+    events = get_all_events(user_id)
+    if not events:
+        return {
+            "agent_name": "CalendarAgent",
+            "response": "📅 You don't have any scheduled events yet. Would you like to create one?",
+            "type": "calendar",
+            "metadata": {"action": "empty_calendar"},
+            "suggested_actions": ["Schedule a meeting", "Add personal event", "Set reminder"],
+            "requires_follow_up": False
+        }
+    events_text = "📅 Your events:\n"
+    for title, dt in events:
+        events_text += f"- {title} at {dt}\n"
+    return {
+        "agent_name": "CalendarAgent",
+        "response": events_text,
+        "type": "calendar",
+        "metadata": {"action": "events_listed"},
+        "suggested_actions": ["Create new event", "Modify event", "Check availability"],
+        "requires_follow_up": False
+    }
+
+def handle_calendar_help():
+    return {
+        "agent_name": "CalendarAgent",
+        "response": "📅 **Calendar Management**\n\nI can help you manage your calendar events and show your scheduled meetings.",
+        "type": "calendar",
+        "metadata": {"action": "calendar_help"},
+        "suggested_actions": ["Schedule a meeting", "Show my events"],
+        "requires_follow_up": False
+    }
+
 def handle_export(message: str, user_id: str):
-    """Handle chat export requests"""
     return {
         "agent_name": "ExportAgent",
         "response": "📦 **Chat Export Ready!**\n\n📊 **Summary:**\n• Total conversations: 25\n• Format: JSON with metadata\n• Ready for download\n\nYour chat export has been prepared!",
@@ -329,20 +338,7 @@ def handle_export(message: str, user_id: str):
         "requires_follow_up": False
     }
 
-async def handle_calendar(message: str, user_id: str):
-    """Handle calendar-related requests (same as before but with DB storage)"""
-    # Calendar logic stays the same, but you can extend it to use calendar_events table
-    return {
-        "agent_name": "CalendarAgent",
-        "response": "📅 **Calendar Management**\n\nI can help you manage your calendar events. Your tasks are stored separately in the task list.",
-        "type": "calendar",
-        "metadata": {"action": "calendar_help"},
-        "suggested_actions": ["Schedule a meeting", "View my tasks", "Show calendar"],
-        "requires_follow_up": False
-    }
-
 def handle_general(message: str, user_id: str, profession: str):
-    """Handle general queries and fallback"""
     return {
         "agent_name": "GeneralAgent",
         "response": f"Hello! I'm your AI assistant for {profession}s.\n\nI can help with:\n📋 **Task Management** - Create and track tasks\n📅 **Calendar** - Manage your schedule\n💾 **Data Export** - Backup your conversations\n👤 **Personal Info** - Remember your preferences\n\nWhat would you like to do?",
@@ -354,7 +350,6 @@ def handle_general(message: str, user_id: str, profession: str):
 
 @app.get("/debug/names")
 async def debug_names():
-    """Debug endpoint to check saved names"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -362,6 +357,18 @@ async def debug_names():
         users = cursor.fetchall()
         conn.close()
         return {"users": users, "db_path": DB_PATH}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/debug/events")
+async def debug_events():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM calendar_events')
+        events = cursor.fetchall()
+        conn.close()
+        return {"events": events, "db_path": DB_PATH}
     except Exception as e:
         return {"error": str(e)}
 
