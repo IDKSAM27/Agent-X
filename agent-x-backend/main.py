@@ -105,7 +105,7 @@ async def process_agent(request: Request):
         return handle_task_completion(message, user_id)
     elif any(word in message for word in ["schedule", "meeting", "add event", "create event"]):
         return await handle_calendar_create(message, user_id)
-    elif any(word in message for word in ["list events", "show events", "view events", "my calendar"]):
+    elif any(word in message for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar"]):
         return await handle_calendar_list(user_id)
     elif any(word in message for word in ["calendar", "event"]):
         return handle_calendar_help()
@@ -306,9 +306,11 @@ async def handle_calendar_list(user_id: str):
             "suggested_actions": ["Schedule a meeting", "Add personal event", "Set reminder"],
             "requires_follow_up": False
         }
-    events_text = "📅 Your events:\n"
+
+    events_text = "📅 Your upcoming events:\n\n"
     for title, dt in events:
-        events_text += f"- {title} at {dt}\n"
+        events_text += f"• **{title}** at {dt}\n"
+
     return {
         "agent_name": "CalendarAgent",
         "response": events_text,
@@ -317,6 +319,7 @@ async def handle_calendar_list(user_id: str):
         "suggested_actions": ["Create new event", "Modify event", "Check availability"],
         "requires_follow_up": False
     }
+
 
 def handle_calendar_help():
     return {
@@ -371,6 +374,52 @@ async def debug_events():
         return {"events": events, "db_path": DB_PATH}
     except Exception as e:
         return {"error": str(e)}
+
+@app.post("/api/clear_memory")
+async def clear_memory_endpoint(request: Request):
+    data = await request.json()
+    user_id = data.get("user_id")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM calendar_events WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": "All data cleared successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/export_chat")
+async def export_chat_endpoint(request: Request):
+    data = await request.json()
+    user_id = data.get("user_id")
+    profession = data.get("profession", "Unknown")
+
+    # For demo, read recent conversation from some persistent store or simulate data
+    # Replace this with your actual conversation memory store
+    conversations = [
+        {
+            "user_message": "Hi there",
+            "agent_response": "Hello! How can I assist?",
+            "timestamp": "2025-09-10T18:00:00"
+        },
+        # Add more conversation entries here...
+    ]
+
+    # Return structured export data
+    return {
+        "status": "success",
+        "data": {
+            "user_id": user_id,
+            "profession": profession,
+            "export_date": datetime.utcnow().isoformat(),
+            "total_messages": len(conversations),
+            "conversations": conversations
+        }
+    }
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
