@@ -103,10 +103,10 @@ async def process_agent(request: Request):
     logger.info(f"Processing: '{message}' from {user_id}")
 
     # Enhanced routing with task separation
-    if any(word in message for word in ["what is my name", "who am i"]):
-        return handle_name_query(message, user_id)
-    elif any(word in message for word in ["my name is", "call me"]):
+    if any(phrase in message for phrase in ["my name is", "call me", "i am"]):
         return handle_name_storage(message, user_id, profession)
+    elif any(phrase in message for phrase in ["what is my name", "who am i", "what am i called"]):
+        return handle_name_query(message, user_id)
     elif any(word in message for word in ["export", "download", "save", "backup"]):
         return handle_export(message, user_id)
     elif any(word in message for word in ["create task", "add task", "task to", "new task"]):
@@ -122,32 +122,33 @@ async def process_agent(request: Request):
 
 # Database helper functions
 def get_user_name(user_id: str) -> str:
-    """Get stored user name from database"""
+    """Get user name from database"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT name FROM users WHERE user_id = ?", (user_id,))
-        result = cursor.fetchone()
+        cursor.execute('SELECT name FROM users WHERE user_id = ?', (user_id,))
+        row = cursor.fetchone()
         conn.close()
-        return result[0] if result else ""
+        name = row[0] if row else ""
+        logger.info(f"📋 Retrieved name: {name} for user {user_id}")
+        return name
     except Exception as e:
-        logger.error(f"Error getting user name: {e}")
+        logger.error(f"❌ Error getting name: {e}")
         return ""
 
-def save_user_info(user_id: str, name: str, profession: str = "Unknown"):
-    """Save user information to database"""
+def save_user_name(user_id: str, name: str):
+    """Save user name to database"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO users (user_id, name, profession)
-            VALUES (?, ?, ?)
-        ''', (user_id, name, profession))
+        cursor.execute('INSERT OR REPLACE INTO users (user_id, name) VALUES (?, ?)', (user_id, name))
         conn.commit()
         conn.close()
-        logger.info(f"✅ Saved user info: {name} ({profession})")
+        logger.info(f"✅ Saved name: {name} for user {user_id}")
+        return True
     except Exception as e:
-        logger.error(f"Error saving user info: {e}")
+        logger.error(f"❌ Error saving name: {e}")
+        return False
 
 def save_task(user_id: str, title: str, description: str = "", priority: str = "medium"):
     """Save task to database"""
@@ -184,54 +185,69 @@ def get_user_tasks(user_id: str, status: str = "pending"):
         logger.error(f"Error getting tasks: {e}")
         return []
 
-# Enhanced handlers with persistence
+# FIXED: Enhanced name handlers
 def handle_name_storage(message: str, user_id: str, profession: str):
     """Handle when user provides their name"""
+    name = ""
+
     if "my name is" in message:
         name = message.split("my name is")[-1].strip().title()
-        save_user_info(user_id, name, profession)
-        return {
-            "agent_name": "PersonalAgent",
-            "response": f"Nice to meet you, {name}! I'll remember your name permanently now.",
-            "type": "text",
-            "metadata": {"action": "name_stored", "name": name},
-            "suggested_actions": ["What can you help me with?", "Create a task"],
-            "requires_follow_up": False
-        }
     elif "call me" in message:
         name = message.split("call me")[-1].strip().title()
-        save_user_info(user_id, name, profession)
-        return {
-            "agent_name": "PersonalAgent",
-            "response": f"Got it, I'll call you {name} from now on!",
-            "type": "text",
-            "metadata": {"action": "name_stored", "name": name},
-            "requires_follow_up": False
-        }
+    elif "i am" in message and not "who am i" in message:
+        name = message.split("i am")[-1].strip().title()
 
-    return handle_general(message, user_id, profession)
+    if name and len(name.split()) <= 3:  # Reasonable name length
+        success = save_user_name(user_id, name)
+        if success:
+            return {
+                "agent_name": "PersonalAgent",
+                "response": f"Perfect! Nice to meet you, {name}. I've saved your name and will remember it permanently!",
+                "type": "text",
+                "metadata": {"action": "name_stored", "name": name},
+                "suggested_actions": ["What can you help me with?", "Create a task", "Show my tasks"],
+                "requires_follow_up": False
+            }
+        else:
+            return {
+                "agent_name": "PersonalAgent",
+                "response": "I had trouble saving your name. Please try again.",
+                "type": "text",
+                "metadata": {"action": "name_save_failed"},
+                "requires_follow_up": False
+            }
+
+    return {
+        "agent_name": "PersonalAgent",
+        "response": "I didn't catch your name clearly. Please say 'My name is [Your Full Name]'",
+        "type": "text",
+        "metadata": {"action": "name_unclear"},
+        "requires_follow_up": False
+    }
 
 def handle_name_query(message: str, user_id: str):
     """Handle when user asks for their name"""
-    name = get_user_name(user_id)
-    if name:
+    stored_name = get_user_name(user_id)
+
+    if stored_name:
         return {
             "agent_name": "PersonalAgent",
-            "response": f"Your name is {name}! 👋",
+            "response": f"Your name is **{stored_name}**! 👋 I remember you!",
             "type": "text",
-            "metadata": {"action": "name_retrieved", "name": name},
-            "suggested_actions": ["Create a task", "Show my tasks", "Update my name"],
+            "metadata": {"action": "name_retrieved", "name": stored_name},
+            "suggested_actions": ["Update my name", "Create a task", "Show my tasks"],
             "requires_follow_up": False
         }
     else:
         return {
             "agent_name": "PersonalAgent",
-            "response": "🤔 I don't know your name yet. You can tell me by saying 'My name is [Your Name]'",
+            "response": "🤔 I don't have your name stored yet.\n\nYou can tell me by saying:\n• 'My name is John Smith'\n• 'Call me Sarah'\n• 'I am Alex'",
             "type": "text",
             "metadata": {"action": "name_request"},
             "suggested_actions": ["My name is John", "Call me Sarah"],
             "requires_follow_up": False
         }
+
 
 # Enhanced task handlers with persistence
 def handle_task_creation(message: str, user_id: str, profession: str):
