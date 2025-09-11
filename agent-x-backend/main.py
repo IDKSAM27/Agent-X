@@ -105,7 +105,7 @@ async def process_agent(request: Request):
         return handle_task_completion(message, user_id)
     elif any(word in message for word in ["schedule", "meeting", "add event", "create event"]):
         return await handle_calendar_create(message, user_id)
-    elif any(word in message for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar"]):
+    elif any(word in message for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar", "show me calendar"]):
         return await handle_calendar_list(user_id)
     elif any(word in message for word in ["calendar", "event"]):
         return handle_calendar_help()
@@ -419,6 +419,53 @@ async def export_chat_endpoint(request: Request):
         }
     }
 
+@app.get("/api/memory/debug/{user_id}")
+async def memory_debug(user_id: str):
+    try:
+        # Connect to DB and read conversation count for user (assuming a conversations table)
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Sample query to fetch total conversations for the user
+        cursor.execute("SELECT COUNT(*) FROM conversations WHERE user_id = ?", (user_id,))
+        total_conversations = cursor.fetchone()[0]
+
+        # Fetch last 5 conversations
+        cursor.execute(
+            "SELECT user_message, agent_response, timestamp FROM conversations WHERE user_id = ? ORDER BY timestamp DESC LIMIT 5",
+            (user_id,)
+        )
+        conversations_raw = cursor.fetchall()
+        conn.close()
+
+        conversations = [
+            {
+                "user_message": r[0],
+                "agent_response": r[1],
+                "timestamp": r[2]
+            } for r in conversations_raw
+        ]
+
+        # Fetch user info if you want
+        cursor = sqlite3.connect(DB_PATH).cursor()
+        cursor.execute("SELECT profession FROM users WHERE user_id = ?", (user_id,))
+        user_profession = cursor.fetchone()
+        user_profession = user_profession[0] if user_profession else "Unknown"
+
+        return {
+            "user_id": user_id,
+            "database_path": DB_PATH,
+            "total_conversations": total_conversations,
+            "user_profession": user_profession,
+            "conversations": conversations,
+            "user_context": {
+                "profession": user_profession
+                # Add other stored contexts/preferences here
+            }
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
