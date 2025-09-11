@@ -144,20 +144,20 @@ class HybridOrchestrator {
 
     final response = await _dio.post('/api/agents/process', data: requestData);
 
-    // Convert backend response to AgentResponse
-    final data = response.data;
+    // Add debug logging
+    print('🔍 Raw backend response: ${response.data}');
+    print('🔍 Response type: ${response.data.runtimeType}');
 
-    return AgentResponse(
-      agentName: data['agent_name'] ?? 'BackendAgent',
-      response: data['response'] ?? 'No response from backend',
-      type: _parseResponseType(data['type']),
-      metadata: Map<String, dynamic>.from(data['metadata'] ?? {}),
-      suggestedActions: List<String>.from(data['suggested_actions'] ?? []),
-      involvedAgents: [data['agent_name'] ?? 'BackendAgent'],
-      confidence: (data['confidence'] ?? 1.0).toDouble(),
-      requiresFollowUp: data['requires_follow_up'] ?? false,
-    );
+    // Ensure it's a Map before processing
+    if (response.data is! Map<String, dynamic>) {
+      print('❌ Backend returned non-JSON response: ${response.data}');
+      return _createErrorResponse('Backend returned invalid format');
+    }
+
+    // Use the new factory constructor
+    return AgentResponse.fromJson(response.data);
   }
+
 
   Future<AgentResponse> _processWithLocalAgents(String message, String? profession) async {
     final request = AgentRequest(
