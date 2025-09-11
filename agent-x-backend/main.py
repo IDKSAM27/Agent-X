@@ -352,5 +352,18 @@ def handle_general(message: str, user_id: str, profession: str):
         "requires_follow_up": False
     }
 
+@app.get("/debug/names")
+async def debug_names():
+    """Debug endpoint to check saved names"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users')
+        users = cursor.fetchall()
+        conn.close()
+        return {"users": users, "db_path": DB_PATH}
+    except Exception as e:
+        return {"error": str(e)}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
