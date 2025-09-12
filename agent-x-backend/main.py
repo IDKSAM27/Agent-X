@@ -181,15 +181,19 @@ def extract_name(message: str):
         return message.split("i am")[-1].split(".")[0].strip().title()
     return ""
 
-def handle_name_storage(message: str, user_id: str, profession: str):
+def handle_name_storage(message: str, user_id: str, profession: str, context: str = ""):
     name = extract_name(message)
     if name and len(name.split()) <= 4:
         save_user_name(user_id, name, profession)
+
+        # Context-aware response
+        context_note = "I can see from our conversation that " if context else ""
+
         return {
             "agent_name": "PersonalAgent",
-            "response": f"Perfect! Nice to meet you, {name}. I've saved your name and will remember it permanently!",
+            "response": f"Perfect! Nice to meet you, {name}. {context_note}I've saved your name and will remember it permanently!",
             "type": "text",
-            "metadata": {"action": "name_stored", "name": name},
+            "metadata": {"action": "name_stored", "name": name, "has_context": bool(context)},
             "suggested_actions": ["What can you help me with?", "Create a task", "Show my tasks"],
             "requires_follow_up": False
         }
@@ -522,50 +526,75 @@ async def export_chat_endpoint(request: Request):
     }
 
 @app.get("/api/memory/debug/{user_id}")
-async def memory_debug(user_id: str):
+async def debug_memory_status(user_id: str):
+    """Debug endpoint to check memory status"""
     try:
-        # Connect to DB and read conversation count for user (assuming a conversations table)
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Sample query to fetch total conversations for the user
-        cursor.execute("SELECT COUNT(*) FROM conversations WHERE user_id = ?", (user_id,))
-        total_conversations = cursor.fetchone()[0]
+        # Count conversations
+        cursor.execute('SELECT COUNT(*) FROM conversations WHERE user_id = ?', (user_id,))
+        conv_count = cursor.fetchone()[0]
 
-        # Fetch last 5 conversations
-        cursor.execute(
-            "SELECT user_message, agent_response, timestamp FROM conversations WHERE user_id = ? ORDER BY timestamp DESC LIMIT 5",
-            (user_id,)
-        )
-        conversations_raw = cursor.fetchall()
+        # Get latest conversation
+        cursor.execute('''
+            SELECT timestamp, intent FROM conversations 
+            WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1
+        ''', (user_id,))
+        latest = cursor.fetchone()
+
         conn.close()
-
-        conversations = [
-            {
-                "user_message": r[0],
-                "agent_response": r[1],
-                "timestamp": r[2]
-            } for r in conversations_raw
-        ]
-
-        # Fetch user info if you want
-        cursor = sqlite3.connect(DB_PATH).cursor()
-        cursor.execute("SELECT profession FROM users WHERE user_id = ?", (user_id,))
-        user_profession = cursor.fetchone()
-        user_profession = user_profession[0] if user_profession else "Unknown"
 
         return {
             "user_id": user_id,
-            "database_path": DB_PATH,
-            "total_conversations": total_conversations,
-            "user_profession": user_profession,
-            "conversations": conversations,
-            "user_context": {
-                "profession": user_profession
-                # Add other stored contexts/preferences here
-            }
+            "total_conversations": conv_count,
+            "latest_conversation": latest[0] if latest else None,
+            "latest_intent": latest[1] if latest else None,
+            "memory_status": "active" if conv_count > 0 else "empty"
         }
+    except Exception as e:
+        return {"error": str(e)}
 
+# Conversation memory endpoints
+@app.get("/api/conversations/history/{user_id}")
+async def get_conversation_history_endpoint(user_id: str, limit: int = 10):
+    """Get conversation history for a user"""
+    try:
+        conversations = get_conversation_history(user_id, limit)
+        history = []
+        for user_msg, assistant_resp, agent_name, intent, timestamp in conversations:
+            history.append({
+                "user_message": user_msg,
+                "assistant_response": assistant_resp,
+                "agent_name": agent_name,
+                "intent": intent,
+                "timestamp": timestamp
+            })
+
+        return {"status": "success", "history": history, "total": len(history)}
+    except Exception as e:
+        logger.error(f"Error fetching conversation history: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/debug/conversations/{user_id}")
+async def debug_conversations(user_id: str):
+    """Debug endpoint to view all conversations for a user"""
+    try:
+        conversations = get_all_conversations(user_id)
+        conv_list = []
+        for conv in conversations:
+            conv_id, user_msg, assistant_resp, agent_name, intent, timestamp, session_id = conv
+            conv_list.append({
+                "id": conv_id,
+                "user_message": user_msg,
+                "assistant_response": assistant_resp,
+                "agent_name": agent_name,
+                "intent": intent,
+                "timestamp": timestamp,
+                "session_id": session_id
+            })
+
+        return {"conversations": conv_list, "total": len(conv_list), "db_path": DB_PATH}
     except Exception as e:
         return {"error": str(e)}
 
