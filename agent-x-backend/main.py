@@ -104,26 +104,54 @@ async def process_agent(request: Request):
 
     logger.info(f"Processing: '{message}' from {user_id}")
 
-    if any(phrase in message for phrase in ["my name is", "call me", "i am"]):
-        return handle_name_storage(message, user_id, profession)
-    elif any(phrase in message for phrase in ["what is my name", "who am i", "what am i called"]):
-        return handle_name_query(message, user_id)
-    elif any(word in message for word in ["export", "download", "save", "backup"]):
-        return handle_export(message, user_id)
-    elif any(word in message for word in ["create task", "add task", "task to", "new task"]):
-        return handle_task_creation(message, user_id, profession)
-    elif any(word in message for word in ["list tasks", "show tasks", "view tasks", "my tasks"]):
-        return handle_task_list(message, user_id)
-    elif any(word in message for word in ["complete task", "finish task", "done task"]):
-        return handle_task_completion(message, user_id)
-    elif any(word in message for word in ["schedule", "meeting", "add event", "create event"]):
-        return await handle_calendar_create(message, user_id)
-    elif any(word in message for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar", "show me calendar"]):
-        return await handle_calendar_list(user_id)
-    elif any(word in message for word in ["calendar", "event"]):
-        return handle_calendar_help()
+    # Get conversation history for context
+    recent_conversations = get_conversation_history(user_id, limit=3)
+    context_string = build_context_string(recent_conversations)
+
+    # Enhanced message with conversation context
+    message_lower = message.lower()
+
+    if any(phrase in message_lower for phrase in ["my name is", "call me", "i am"]):
+        response_data = handle_name_storage(message, user_id, profession, context_string)
+        intent = "name_storage"
+    elif any(phrase in message_lower for phrase in ["what is my name", "who am i", "what am i called"]):
+        response_data = handle_name_query(message, user_id, context_string)
+        intent = "name_query"
+    elif any(word in message_lower for word in ["export", "download", "save", "backup"]):
+        response_data = handle_export(message, user_id, context_string)
+        intent = "export"
+    elif any(word in message_lower for word in ["create task", "add task", "task to", "new task"]):
+        response_data = handle_task_creation(message, user_id, profession, context_string)
+        intent = "task_creation"
+    elif any(word in message_lower for word in ["list tasks", "show tasks", "view tasks", "my tasks"]):
+        response_data = handle_task_list(message, user_id, context_string)
+        intent = "task_list"
+    elif any(word in message_lower for word in ["complete task", "finish task", "done task"]):
+        response_data = handle_task_completion(message, user_id, context_string)
+        intent = "task_completion"
+    elif any(word in message_lower for word in ["schedule", "meeting", "add event", "create event"]):
+        response_data = await handle_calendar_create(message, user_id, context_string)
+        intent = "calendar_create"
+    elif any(word in message_lower for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar", "show me calendar"]):
+        response_data = await handle_calendar_list(user_id, context_string)
+        intent = "calendar_list"
+    elif any(word in message_lower for word in ["calendar", "event"]):
+        response_data = handle_calendar_help(context_string)
+        intent = "calendar_help"
     else:
-        return handle_general(message, user_id, profession)
+        response_data = handle_general(message, user_id, profession, context_string)
+        intent = "general"
+
+    # Save this conversation turn to memory
+    save_conversation(
+        user_id=user_id,
+        user_message=message,
+        assistant_response=response_data["response"],
+        agent_name=response_data["agent_name"],
+        intent=intent
+    )
+
+    return response_data
 
 # Name storage/retrieval functions
 def save_user_name(user_id: str, name: str, profession: str):
