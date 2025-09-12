@@ -87,7 +87,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               AnimatedContainer( // Tried to make it smoother by using AnimatedContainer
                 duration: const Duration(milliseconds: 250),
                 curve: Curves.easeInOut,
-                padding: EdgeInsets.all(AppConstants.spacingS),
+                padding: EdgeInsets.all(AppConstants.spacingXXS),
                 child: RepaintBoundary(
                     child: inputSection
                 ),
