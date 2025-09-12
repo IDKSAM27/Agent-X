@@ -490,11 +490,14 @@ async def clear_memory_endpoint(request: Request):
         cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         cursor.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
         cursor.execute("DELETE FROM calendar_events WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))  # NEW
         conn.commit()
         conn.close()
-        return {"status": "success", "message": "All data cleared successfully"}
+        logger.info(f"🗑️ Cleared all data including conversations for {user_id}")
+        return {"status": "success", "message": "All data including conversation memory cleared successfully"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 @app.post("/api/export_chat")
 async def export_chat_endpoint(request: Request):
@@ -502,28 +505,37 @@ async def export_chat_endpoint(request: Request):
     user_id = data.get("user_id")
     profession = data.get("profession", "Unknown")
 
-    # For demo, read recent conversation from some persistent store or simulate data
-    # Replace this with your actual conversation memory store
-    conversations = [
-        {
-            "user_message": "Hi there",
-            "agent_response": "Hello! How can I assist?",
-            "timestamp": "2025-09-10T18:00:00"
-        },
-        # Add more conversation entries here...
-    ]
+    try:
+        # Get all conversations from memory
+        all_conversations = get_all_conversations(user_id)
+        conversations = []
 
-    # Return structured export data
-    return {
-        "status": "success",
-        "data": {
-            "user_id": user_id,
-            "profession": profession,
-            "export_date": datetime.utcnow().isoformat(),
-            "total_messages": len(conversations),
-            "conversations": conversations
+        for conv in all_conversations:
+            conv_id, user_msg, assistant_resp, agent_name, intent, timestamp, session_id = conv
+            conversations.append({
+                "id": conv_id,
+                "user_message": user_msg,
+                "assistant_response": assistant_resp,
+                "agent_name": agent_name,
+                "intent": intent,
+                "timestamp": timestamp,
+                "session_id": session_id
+            })
+
+        return {
+            "status": "success",
+            "data": {
+                "user_id": user_id,
+                "profession": profession,
+                "export_date": datetime.utcnow().isoformat(),
+                "total_messages": len(conversations),
+                "conversations": conversations,
+                "memory_enabled": True
+            }
         }
-    }
+    except Exception as e:
+        logger.error(f"Export error: {e}")
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/memory/debug/{user_id}")
 async def debug_memory_status(user_id: str):
