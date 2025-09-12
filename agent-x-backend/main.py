@@ -61,9 +61,22 @@ def init_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            user_message TEXT NOT NULL,
+            assistant_response TEXT NOT NULL,
+            agent_name TEXT,
+            intent TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            session_id TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    ''')
     conn.commit()
     conn.close()
-    logger.info("✅ Database initialized successfully")
+    logger.info("✅ Database initialized successfully with conversation memory")
 
 init_database()
 
@@ -91,26 +104,54 @@ async def process_agent(request: Request):
 
     logger.info(f"Processing: '{message}' from {user_id}")
 
-    if any(phrase in message for phrase in ["my name is", "call me", "i am"]):
-        return handle_name_storage(message, user_id, profession)
-    elif any(phrase in message for phrase in ["what is my name", "who am i", "what am i called"]):
-        return handle_name_query(message, user_id)
-    elif any(word in message for word in ["export", "download", "save", "backup"]):
-        return handle_export(message, user_id)
-    elif any(word in message for word in ["create task", "add task", "task to", "new task"]):
-        return handle_task_creation(message, user_id, profession)
-    elif any(word in message for word in ["list tasks", "show tasks", "view tasks", "my tasks"]):
-        return handle_task_list(message, user_id)
-    elif any(word in message for word in ["complete task", "finish task", "done task"]):
-        return handle_task_completion(message, user_id)
-    elif any(word in message for word in ["schedule", "meeting", "add event", "create event"]):
-        return await handle_calendar_create(message, user_id)
-    elif any(word in message for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar", "show me calendar"]):
-        return await handle_calendar_list(user_id)
-    elif any(word in message for word in ["calendar", "event"]):
-        return handle_calendar_help()
+    # Get conversation history for context
+    recent_conversations = get_conversation_history(user_id, limit=3)
+    context_string = build_context_string(recent_conversations)
+
+    # Enhanced message with conversation context
+    message_lower = message.lower()
+
+    if any(phrase in message_lower for phrase in ["my name is", "call me", "i am"]):
+        response_data = handle_name_storage(message, user_id, profession, context_string)
+        intent = "name_storage"
+    elif any(phrase in message_lower for phrase in ["what is my name", "who am i", "what am i called"]):
+        response_data = handle_name_query(message, user_id, context_string)
+        intent = "name_query"
+    elif any(word in message_lower for word in ["export", "download", "save", "backup"]):
+        response_data = handle_export(message, user_id, context_string)
+        intent = "export"
+    elif any(word in message_lower for word in ["create task", "add task", "task to", "new task"]):
+        response_data = handle_task_creation(message, user_id, profession, context_string)
+        intent = "task_creation"
+    elif any(word in message_lower for word in ["list tasks", "show tasks", "view tasks", "my tasks"]):
+        response_data = handle_task_list(message, user_id, context_string)
+        intent = "task_list"
+    elif any(word in message_lower for word in ["complete task", "finish task", "done task"]):
+        response_data = handle_task_completion(message, user_id, context_string)
+        intent = "task_completion"
+    elif any(word in message_lower for word in ["schedule", "meeting", "add event", "create event"]):
+        response_data = await handle_calendar_create(message, user_id, context_string)
+        intent = "calendar_create"
+    elif any(word in message_lower for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar", "show me calendar"]):
+        response_data = await handle_calendar_list(user_id, context_string)
+        intent = "calendar_list"
+    elif any(word in message_lower for word in ["calendar", "event"]):
+        response_data = handle_calendar_help(context_string)
+        intent = "calendar_help"
     else:
-        return handle_general(message, user_id, profession)
+        response_data = handle_general(message, user_id, profession, context_string)
+        intent = "general"
+
+    # Save this conversation turn to memory
+    save_conversation(
+        user_id=user_id,
+        user_message=message,
+        assistant_response=response_data["response"],
+        agent_name=response_data["agent_name"],
+        intent=intent
+    )
+
+    return response_data
 
 # Name storage/retrieval functions
 def save_user_name(user_id: str, name: str, profession: str):
@@ -140,15 +181,19 @@ def extract_name(message: str):
         return message.split("i am")[-1].split(".")[0].strip().title()
     return ""
 
-def handle_name_storage(message: str, user_id: str, profession: str):
+def handle_name_storage(message: str, user_id: str, profession: str, context: str = ""):
     name = extract_name(message)
     if name and len(name.split()) <= 4:
         save_user_name(user_id, name, profession)
+
+        # Context-aware response
+        context_note = "I can see from our conversation that " if context else ""
+
         return {
             "agent_name": "PersonalAgent",
-            "response": f"Perfect! Nice to meet you, {name}. I've saved your name and will remember it permanently!",
+            "response": f"Perfect! Nice to meet you, {name}. {context_note}I've saved your name and will remember it permanently!",
             "type": "text",
-            "metadata": {"action": "name_stored", "name": name},
+            "metadata": {"action": "name_stored", "name": name, "has_context": bool(context)},
             "suggested_actions": ["What can you help me with?", "Create a task", "Show my tasks"],
             "requires_follow_up": False
         }
@@ -350,6 +395,67 @@ def handle_general(message: str, user_id: str, profession: str):
         "requires_follow_up": False
     }
 
+# Conversation memory functions
+def save_conversation(user_id: str, user_message: str, assistant_response: str, agent_name: str, intent: str):
+    """Save a conversation turn to persistent memory"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    session_id = f"session_{user_id}_{datetime.now().strftime('%Y%m%d')}"
+    cursor.execute('''
+        INSERT INTO conversations (user_id, user_message, assistant_response, agent_name, intent, session_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (user_id, user_message, assistant_response, agent_name, intent, session_id))
+    conn.commit()
+    conversation_id = cursor.lastrowid
+    conn.close()
+    logger.info(f"💾 Saved conversation: {intent} for user {user_id}")
+    return conversation_id
+
+def get_conversation_history(user_id: str, limit: int = 5):
+    """Get recent conversation history for context"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT user_message, assistant_response, agent_name, intent, timestamp
+        FROM conversations 
+        WHERE user_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+    ''', (user_id, limit))
+    conversations = cursor.fetchall()
+    conn.close()
+    logger.info(f"📜 Retrieved {len(conversations)} conversations for {user_id}")
+    return conversations
+
+def get_all_conversations(user_id: str):
+    """Get all conversations for a user (for export/debug)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, user_message, assistant_response, agent_name, intent, timestamp, session_id
+        FROM conversations 
+        WHERE user_id = ?
+        ORDER BY timestamp DESC
+    ''', (user_id,))
+    conversations = cursor.fetchall()
+    conn.close()
+    return conversations
+
+def build_context_string(conversations):
+    """Build context string from recent conversations"""
+    if not conversations:
+        return ""
+
+    context_parts = ["📝 **Recent Context:**"]
+    for user_msg, assistant_resp, agent_name, intent, timestamp in reversed(conversations):
+        # Truncate long messages for context
+        user_preview = user_msg[:50] + "..." if len(user_msg) > 50 else user_msg
+        assistant_preview = assistant_resp[:50] + "..." if len(assistant_resp) > 50 else assistant_resp
+        context_parts.append(f"User: {user_preview}")
+        context_parts.append(f"Assistant: {assistant_preview}")
+
+    return "\n".join(context_parts) + "\n\n"
+
 @app.get("/debug/names")
 async def debug_names():
     try:
@@ -384,11 +490,14 @@ async def clear_memory_endpoint(request: Request):
         cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         cursor.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
         cursor.execute("DELETE FROM calendar_events WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))  # NEW
         conn.commit()
         conn.close()
-        return {"status": "success", "message": "All data cleared successfully"}
+        logger.info(f"🗑️ Cleared all data including conversations for {user_id}")
+        return {"status": "success", "message": "All data including conversation memory cleared successfully"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 @app.post("/api/export_chat")
 async def export_chat_endpoint(request: Request):
@@ -396,74 +505,108 @@ async def export_chat_endpoint(request: Request):
     user_id = data.get("user_id")
     profession = data.get("profession", "Unknown")
 
-    # For demo, read recent conversation from some persistent store or simulate data
-    # Replace this with your actual conversation memory store
-    conversations = [
-        {
-            "user_message": "Hi there",
-            "agent_response": "Hello! How can I assist?",
-            "timestamp": "2025-09-10T18:00:00"
-        },
-        # Add more conversation entries here...
-    ]
+    try:
+        # Get all conversations from memory
+        all_conversations = get_all_conversations(user_id)
+        conversations = []
 
-    # Return structured export data
-    return {
-        "status": "success",
-        "data": {
-            "user_id": user_id,
-            "profession": profession,
-            "export_date": datetime.utcnow().isoformat(),
-            "total_messages": len(conversations),
-            "conversations": conversations
+        for conv in all_conversations:
+            conv_id, user_msg, assistant_resp, agent_name, intent, timestamp, session_id = conv
+            conversations.append({
+                "id": conv_id,
+                "user_message": user_msg,
+                "assistant_response": assistant_resp,
+                "agent_name": agent_name,
+                "intent": intent,
+                "timestamp": timestamp,
+                "session_id": session_id
+            })
+
+        return {
+            "status": "success",
+            "data": {
+                "user_id": user_id,
+                "profession": profession,
+                "export_date": datetime.utcnow().isoformat(),
+                "total_messages": len(conversations),
+                "conversations": conversations,
+                "memory_enabled": True
+            }
         }
-    }
+    except Exception as e:
+        logger.error(f"Export error: {e}")
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/memory/debug/{user_id}")
-async def memory_debug(user_id: str):
+async def debug_memory_status(user_id: str):
+    """Debug endpoint to check memory status"""
     try:
-        # Connect to DB and read conversation count for user (assuming a conversations table)
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Sample query to fetch total conversations for the user
-        cursor.execute("SELECT COUNT(*) FROM conversations WHERE user_id = ?", (user_id,))
-        total_conversations = cursor.fetchone()[0]
+        # Count conversations
+        cursor.execute('SELECT COUNT(*) FROM conversations WHERE user_id = ?', (user_id,))
+        conv_count = cursor.fetchone()[0]
 
-        # Fetch last 5 conversations
-        cursor.execute(
-            "SELECT user_message, agent_response, timestamp FROM conversations WHERE user_id = ? ORDER BY timestamp DESC LIMIT 5",
-            (user_id,)
-        )
-        conversations_raw = cursor.fetchall()
+        # Get latest conversation
+        cursor.execute('''
+            SELECT timestamp, intent FROM conversations 
+            WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1
+        ''', (user_id,))
+        latest = cursor.fetchone()
+
         conn.close()
-
-        conversations = [
-            {
-                "user_message": r[0],
-                "agent_response": r[1],
-                "timestamp": r[2]
-            } for r in conversations_raw
-        ]
-
-        # Fetch user info if you want
-        cursor = sqlite3.connect(DB_PATH).cursor()
-        cursor.execute("SELECT profession FROM users WHERE user_id = ?", (user_id,))
-        user_profession = cursor.fetchone()
-        user_profession = user_profession[0] if user_profession else "Unknown"
 
         return {
             "user_id": user_id,
-            "database_path": DB_PATH,
-            "total_conversations": total_conversations,
-            "user_profession": user_profession,
-            "conversations": conversations,
-            "user_context": {
-                "profession": user_profession
-                # Add other stored contexts/preferences here
-            }
+            "total_conversations": conv_count,
+            "latest_conversation": latest[0] if latest else None,
+            "latest_intent": latest[1] if latest else None,
+            "memory_status": "active" if conv_count > 0 else "empty"
         }
+    except Exception as e:
+        return {"error": str(e)}
 
+# Conversation memory endpoints
+@app.get("/api/conversations/history/{user_id}")
+async def get_conversation_history_endpoint(user_id: str, limit: int = 10):
+    """Get conversation history for a user"""
+    try:
+        conversations = get_conversation_history(user_id, limit)
+        history = []
+        for user_msg, assistant_resp, agent_name, intent, timestamp in conversations:
+            history.append({
+                "user_message": user_msg,
+                "assistant_response": assistant_resp,
+                "agent_name": agent_name,
+                "intent": intent,
+                "timestamp": timestamp
+            })
+
+        return {"status": "success", "history": history, "total": len(history)}
+    except Exception as e:
+        logger.error(f"Error fetching conversation history: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/debug/conversations/{user_id}")
+async def debug_conversations(user_id: str):
+    """Debug endpoint to view all conversations for a user"""
+    try:
+        conversations = get_all_conversations(user_id)
+        conv_list = []
+        for conv in conversations:
+            conv_id, user_msg, assistant_resp, agent_name, intent, timestamp, session_id = conv
+            conv_list.append({
+                "id": conv_id,
+                "user_message": user_msg,
+                "assistant_response": assistant_resp,
+                "agent_name": agent_name,
+                "intent": intent,
+                "timestamp": timestamp,
+                "session_id": session_id
+            })
+
+        return {"conversations": conv_list, "total": len(conv_list), "db_path": DB_PATH}
     except Exception as e:
         return {"error": str(e)}
 
