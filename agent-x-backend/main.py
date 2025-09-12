@@ -61,9 +61,22 @@ def init_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            user_message TEXT NOT NULL,
+            assistant_response TEXT NOT NULL,
+            agent_name TEXT,
+            intent TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            session_id TEXT,
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    ''')
     conn.commit()
     conn.close()
-    logger.info("✅ Database initialized successfully")
+    logger.info("✅ Database initialized successfully with conversation memory")
 
 init_database()
 
@@ -349,6 +362,67 @@ def handle_general(message: str, user_id: str, profession: str):
         "suggested_actions": ["Create a task", "Show my tasks", "Show my calendar", "Export my chat"],
         "requires_follow_up": False
     }
+
+# Conversation memory functions
+def save_conversation(user_id: str, user_message: str, assistant_response: str, agent_name: str, intent: str):
+    """Save a conversation turn to persistent memory"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    session_id = f"session_{user_id}_{datetime.now().strftime('%Y%m%d')}"
+    cursor.execute('''
+        INSERT INTO conversations (user_id, user_message, assistant_response, agent_name, intent, session_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (user_id, user_message, assistant_response, agent_name, intent, session_id))
+    conn.commit()
+    conversation_id = cursor.lastrowid
+    conn.close()
+    logger.info(f"💾 Saved conversation: {intent} for user {user_id}")
+    return conversation_id
+
+def get_conversation_history(user_id: str, limit: int = 5):
+    """Get recent conversation history for context"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT user_message, assistant_response, agent_name, intent, timestamp
+        FROM conversations 
+        WHERE user_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+    ''', (user_id, limit))
+    conversations = cursor.fetchall()
+    conn.close()
+    logger.info(f"📜 Retrieved {len(conversations)} conversations for {user_id}")
+    return conversations
+
+def get_all_conversations(user_id: str):
+    """Get all conversations for a user (for export/debug)"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, user_message, assistant_response, agent_name, intent, timestamp, session_id
+        FROM conversations 
+        WHERE user_id = ?
+        ORDER BY timestamp DESC
+    ''', (user_id,))
+    conversations = cursor.fetchall()
+    conn.close()
+    return conversations
+
+def build_context_string(conversations):
+    """Build context string from recent conversations"""
+    if not conversations:
+        return ""
+
+    context_parts = ["📝 **Recent Context:**"]
+    for user_msg, assistant_resp, agent_name, intent, timestamp in reversed(conversations):
+        # Truncate long messages for context
+        user_preview = user_msg[:50] + "..." if len(user_msg) > 50 else user_msg
+        assistant_preview = assistant_resp[:50] + "..." if len(assistant_resp) > 50 else assistant_resp
+        context_parts.append(f"User: {user_preview}")
+        context_parts.append(f"Assistant: {assistant_preview}")
+
+    return "\n".join(context_parts) + "\n\n"
 
 @app.get("/debug/names")
 async def debug_names():
