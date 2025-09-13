@@ -12,6 +12,22 @@ from firebase_admin import credentials, auth as firebase_auth
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Absolute DB path for reliability
+DB_PATH = os.path.join(os.path.dirname(__file__), "agent_x.db")
+
 # Initialize Firebase Admin SDK
 def initialize_firebase():
     """Initialize Firebase Admin SDK"""
@@ -59,7 +75,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
     except firebase_auth.InvalidIdTokenError:
         raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
-    except firebase_auth.ExpiredIdTokenError:
+    except firebase_auth.ExpiredIdTokenError:                                   # I guess this is redundant, let's see what happens
         raise HTTPException(status_code=401, detail="Expired Firebase ID token")
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
@@ -75,22 +91,6 @@ def get_user_profession_from_db(firebase_uid: str) -> str:
         return result[0] if result else "Professional"
     except Exception:
         return "Professional"
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Absolute DB path for reliability
-DB_PATH = os.path.join(os.path.dirname(__file__), "agent_x.db")
 
 def init_database():
     conn = sqlite3.connect(DB_PATH)
@@ -173,56 +173,60 @@ class AgentResponse(BaseModel):
     suggested_actions: Optional[List[str]] = None
 
 @app.post("/api/agents/process")
-async def process_agent(request: Request):
+async def process_agent(request: Request, current_user: dict = Depends(get_current_user)):
     data = await request.json()
-    message = data.get("message", "").lower()
-    user_id = data.get("user_id")
-    context = data.get("context", {})
-    profession = context.get("profession", "Unknown")
+    message = data.get("message", "")
 
-    logger.info(f"Processing: '{message}' from {user_id}")
+    # Use Firebase UID as user_id
+    firebase_uid = current_user["firebase_uid"]
+    profession = current_user.get("profession", "Professional")
+
+    logger.info(f"Processing: '{message}' from Firebase user {firebase_uid}")
+
+    # Ensure user exists in local database
+    ensure_user_exists_in_db(current_user)
 
     # Get conversation history for context
-    recent_conversations = get_conversation_history(user_id, limit=3)
+    recent_conversations = get_conversation_history(firebase_uid, limit=3)
     context_string = build_context_string(recent_conversations)
 
-    # Enhanced message with conversation context
+    # Your existing intent detection and processing logic...
     message_lower = message.lower()
 
     if any(phrase in message_lower for phrase in ["my name is", "call me", "i am"]):
-        response_data = handle_name_storage(message, user_id, profession, context_string)
+        response_data = handle_name_storage(message, firebase_uid, profession, context_string)
         intent = "name_storage"
     elif any(phrase in message_lower for phrase in ["what is my name", "who am i", "what am i called"]):
-        response_data = handle_name_query(message, user_id, context_string)
+        response_data = handle_name_query(message, firebase_uid, context_string)
         intent = "name_query"
     elif any(word in message_lower for word in ["export", "download", "save", "backup"]):
-        response_data = handle_export(message, user_id, context_string)
+        response_data = handle_export(message, firebase_uid, context_string)
         intent = "export"
     elif any(word in message_lower for word in ["create task", "add task", "task to", "new task"]):
-        response_data = handle_task_creation(message, user_id, profession, context_string)
+        response_data = handle_task_creation(message, firebase_uid, profession, context_string)
         intent = "task_creation"
     elif any(word in message_lower for word in ["list tasks", "show tasks", "view tasks", "my tasks"]):
-        response_data = handle_task_list(message, user_id, context_string)
+        response_data = handle_task_list(message, firebase_uid, context_string)
         intent = "task_list"
     elif any(word in message_lower for word in ["complete task", "finish task", "done task"]):
-        response_data = handle_task_completion(message, user_id, context_string)
+        response_data = handle_task_completion(message, firebase_uid, context_string)
         intent = "task_completion"
     elif any(word in message_lower for word in ["schedule", "meeting", "add event", "create event"]):
-        response_data = await handle_calendar_create(message, user_id, context_string)
+        response_data = await handle_calendar_create(message, firebase_uid, context_string)
         intent = "calendar_create"
     elif any(word in message_lower for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar", "show me calendar"]):
-        response_data = await handle_calendar_list(user_id, context_string)
+        response_data = await handle_calendar_list(firebase_uid, context_string)
         intent = "calendar_list"
     elif any(word in message_lower for word in ["calendar", "event"]):
         response_data = handle_calendar_help(context_string)
         intent = "calendar_help"
     else:
-        response_data = handle_general(message, user_id, profession, context_string)
+        response_data = handle_general(message, firebase_uid, profession, context_string)
         intent = "general"
 
     # Save this conversation turn to memory
     save_conversation(
-        user_id=user_id,
+        user_id=firebase_uid,
         user_message=message,
         assistant_response=response_data["response"],
         agent_name=response_data["agent_name"],
@@ -230,6 +234,37 @@ async def process_agent(request: Request):
     )
 
     return response_data
+
+def ensure_user_exists_in_db(user_data: dict):
+    """Ensure user exists in local database, create if not"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT firebase_uid FROM users WHERE firebase_uid = ?", (user_data["firebase_uid"],))
+        if not cursor.fetchone():
+            # Create user record
+            cursor.execute('''
+                INSERT INTO users (firebase_uid, email, display_name, email_verified, last_login)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                user_data["firebase_uid"],
+                user_data.get("email"),
+                user_data.get("name"),
+                user_data.get("email_verified", False),
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            ))
+            conn.commit()
+            logger.info(f"✅ Created local user record for Firebase UID: {user_data['firebase_uid']}")
+        else:
+            # Update last login
+            cursor.execute("UPDATE users SET last_login = ? WHERE firebase_uid = ?",
+                           (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_data["firebase_uid"]))
+            conn.commit()
+
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error ensuring user exists: {e}")
 
 # Name storage/retrieval functions
 def save_user_name(user_id: str, name: str, profession: str):
@@ -598,53 +633,27 @@ async def debug_events():
         return {"error": str(e)}
 
 @app.post("/api/clear_memory")
-async def clear_memory_endpoint(request: Request):
-    data = await request.json()
-    # user_id = data.get("user_id")
-    user_id = 'user_123'
-
-    # ADD THIS LOGGING
-    logger.info(f"🔍 CLEAR REQUEST - Received user_id: '{user_id}' (type: {type(user_id)})")
-    logger.info(f"🔍 CLEAR REQUEST - Full request data: {data}")
-
-    if not user_id:
-        return {"status": "error", "message": "User ID is required"}
+async def clear_memory_endpoint(request: Request, current_user: dict = Depends(get_current_user)):
+    firebase_uid = current_user["firebase_uid"]
 
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Check ALL users in database
-        cursor.execute("SELECT user_id FROM users")
-        all_users = cursor.fetchall()
-        logger.info(f"🔍 ALL USERS IN DB: {all_users}")
-
-        # Check ALL tasks
-        cursor.execute("SELECT DISTINCT user_id FROM tasks")
-        all_task_users = cursor.fetchall()
-        logger.info(f"🔍 ALL TASK USER_IDS: {all_task_users}")
-
-        # Check ALL events
-        cursor.execute("SELECT DISTINCT user_id FROM calendar_events")
-        all_event_users = cursor.fetchall()
-        logger.info(f"🔍 ALL EVENT USER_IDS: {all_event_users}")
-
-        # Now try the deletion with exact match
-        deleted_users = cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,)).rowcount
-        deleted_tasks = cursor.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,)).rowcount
-        deleted_events = cursor.execute("DELETE FROM calendar_events WHERE user_id = ?", (user_id,)).rowcount
-        deleted_conversations = cursor.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,)).rowcount
+        # Clear data using Firebase UID
+        deleted_tasks = cursor.execute("DELETE FROM tasks WHERE firebase_uid = ?", (firebase_uid,)).rowcount
+        deleted_events = cursor.execute("DELETE FROM calendar_events WHERE firebase_uid = ?", (firebase_uid,)).rowcount
+        deleted_conversations = cursor.execute("DELETE FROM conversations WHERE firebase_uid = ?", (firebase_uid,)).rowcount
 
         conn.commit()
         conn.close()
 
-        logger.info(f"🗑️ Deletion results - Users: {deleted_users}, Tasks: {deleted_tasks}, Events: {deleted_events}, Conversations: {deleted_conversations}")
+        logger.info(f"🗑️ Cleared data for Firebase UID {firebase_uid} - Tasks: {deleted_tasks}, Events: {deleted_events}, Conversations: {deleted_conversations}")
 
         return {
             "status": "success",
-            "message": f"Cleared data for user_id: {user_id}",
+            "message": "All data cleared successfully",
             "deleted_counts": {
-                "users": deleted_users,
                 "tasks": deleted_tasks,
                 "events": deleted_events,
                 "conversations": deleted_conversations
@@ -654,8 +663,6 @@ async def clear_memory_endpoint(request: Request):
     except Exception as e:
         logger.error(f"❌ Clear memory error: {str(e)}")
         return {"status": "error", "message": str(e)}
-
-
 
 @app.get("/debug/data_status/{user_id}")
 async def debug_data_status(user_id: str):
@@ -735,7 +742,7 @@ async def export_chat_endpoint(request: Request):
             "data": {
                 "user_id": user_id,
                 "profession": profession,
-                "export_date": datetime.utcnow().isoformat(),
+                "export_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "total_messages": len(conversations),
                 "conversations": conversations,
                 "memory_enabled": True
