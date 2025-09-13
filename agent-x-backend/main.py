@@ -61,6 +61,165 @@ security = HTTPBearer()
 # TODO: TEMPORARY: Add development mode bypass
 DEVELOPMENT_MODE = True  # Set to False in production
 
+def migrate_database_to_firebase_uid():
+    """Migrate existing database schema from user_id to firebase_uid"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Check if migration is needed
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [column[1] for column in cursor.fetchall()]
+
+        if 'firebase_uid' in columns:
+            logger.info("✅ Database already migrated to firebase_uid schema")
+            conn.close()
+            return
+
+        logger.info("🔄 Starting database migration to firebase_uid schema...")
+
+        # Begin transaction
+        cursor.execute("BEGIN TRANSACTION")
+
+        # 1. Backup existing tables
+        cursor.execute("CREATE TABLE users_backup AS SELECT * FROM users")
+        cursor.execute("CREATE TABLE tasks_backup AS SELECT * FROM tasks")
+        cursor.execute("CREATE TABLE calendar_events_backup AS SELECT * FROM calendar_events")
+
+        # Check if conversations table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'")
+        if cursor.fetchone():
+            cursor.execute("CREATE TABLE conversations_backup AS SELECT * FROM conversations")
+
+        # 2. Drop existing tables
+        cursor.execute("DROP TABLE users")
+        cursor.execute("DROP TABLE tasks")
+        cursor.execute("DROP TABLE calendar_events")
+        cursor.execute("DROP TABLE IF EXISTS conversations")
+
+        # 3. Create new schema with firebase_uid
+        cursor.execute('''
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                firebase_uid TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                profession TEXT,
+                display_name TEXT,
+                photo_url TEXT,
+                email_verified BOOLEAN DEFAULT FALSE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_login DATETIME,
+                preferences JSON
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                firebase_uid TEXT NOT NULL,
+                title TEXT,
+                description TEXT,
+                status TEXT DEFAULT 'pending',
+                priority TEXT DEFAULT 'medium',
+                due_date TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE calendar_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                firebase_uid TEXT NOT NULL,
+                title TEXT,
+                description TEXT,
+                start_time TEXT,
+                end_time TEXT,
+                location TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                firebase_uid TEXT NOT NULL,
+                user_message TEXT NOT NULL,
+                assistant_response TEXT NOT NULL,
+                agent_name TEXT,
+                intent TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                session_id TEXT,
+                FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
+            )
+        ''')
+
+        # 4. Migrate data (map old user_id to firebase_uid)
+        # For development, we'll map old data to dev user
+        DEV_FIREBASE_UID = "dev_user_123"
+
+        # Migrate users (if any)
+        cursor.execute("SELECT user_id, name, profession FROM users_backup")
+        old_users = cursor.fetchall()
+        for old_user in old_users:
+            cursor.execute('''
+                INSERT INTO users (firebase_uid, display_name, profession, email)
+                VALUES (?, ?, ?, ?)
+            ''', (DEV_FIREBASE_UID, old_user[1], old_user[2], "dev@test.com"))
+
+        # Migrate tasks
+        cursor.execute("SELECT title, description, status, priority, due_date, created_at FROM tasks_backup")
+        old_tasks = cursor.fetchall()
+        for task in old_tasks:
+            cursor.execute('''
+                INSERT INTO tasks (firebase_uid, title, description, status, priority, due_date, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (DEV_FIREBASE_UID, *task))
+
+        # Migrate events
+        cursor.execute("SELECT title, description, start_time, end_time, location, created_at FROM calendar_events_backup")
+        old_events = cursor.fetchall()
+        for event in old_events:
+            cursor.execute('''
+                INSERT INTO calendar_events (firebase_uid, title, description, start_time, end_time, location, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (DEV_FIREBASE_UID, *event))
+
+        # Migrate conversations if they exist
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations_backup'")
+        if cursor.fetchone():
+            cursor.execute("SELECT user_message, assistant_response, agent_name, intent, timestamp, session_id FROM conversations_backup")
+            old_conversations = cursor.fetchall()
+            for conv in old_conversations:
+                cursor.execute('''
+                    INSERT INTO conversations (firebase_uid, user_message, assistant_response, agent_name, intent, timestamp, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (DEV_FIREBASE_UID, *conv))
+
+        # 5. Clean up backup tables
+        cursor.execute("DROP TABLE users_backup")
+        cursor.execute("DROP TABLE tasks_backup")
+        cursor.execute("DROP TABLE calendar_events_backup")
+        cursor.execute("DROP TABLE IF EXISTS conversations_backup")
+
+        # Commit transaction
+        cursor.execute("COMMIT")
+        conn.close()
+
+        logger.info("✅ Database migration completed successfully!")
+        logger.info(f"📊 All data migrated to firebase_uid: {DEV_FIREBASE_UID}")
+
+    except Exception as e:
+        logger.error(f"❌ Database migration failed: {e}")
+        try:
+            cursor.execute("ROLLBACK")
+            logger.info("🔄 Migration rolled back")
+        except:
+            pass
+        raise
+
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer())):
     """Dependency to get current authenticated Firebase user with debug info"""
 
@@ -124,9 +283,21 @@ def get_user_profession_from_db(firebase_uid: str) -> str:
         return "Professional"
 
 def init_database():
+    """Initialize database with migration support"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
+    # Check if any tables exist (for migration)
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    existing_tables = [table[0] for table in cursor.fetchall()]
+
+    # If tables exist but schema is old, run migration
+    if existing_tables and 'users' in existing_tables:
+        conn.close()
+        migrate_database_to_firebase_uid()
+        return
+
+    # Create fresh database with firebase_uid schema
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,7 +312,7 @@ def init_database():
             preferences JSON
         )
     ''')
-    # Updated other tables to use firebase_uid
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,6 +327,7 @@ def init_database():
             FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
         )
     ''')
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS calendar_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -183,6 +355,7 @@ def init_database():
             FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
         )
     ''')
+
     conn.commit()
     conn.close()
     logger.info("✅ Database initialized with Firebase UID support")
@@ -257,7 +430,7 @@ async def process_agent(request: Request, current_user: dict = Depends(get_curre
 
     # Save this conversation turn to memory
     save_conversation(
-        user_id=firebase_uid,
+        firebase_uid=firebase_uid,
         user_message=message,
         assistant_response=response_data["response"],
         agent_name=response_data["agent_name"],
