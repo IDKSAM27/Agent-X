@@ -7,6 +7,74 @@ import logging
 import uvicorn
 import sqlite3
 import os
+import firebase_admin
+from firebase_admin import credentials, auth as firebase_auth
+from fastapi import HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+# Initialize Firebase Admin SDK
+def initialize_firebase():
+    """Initialize Firebase Admin SDK"""
+    try:
+        # For production, use service account key
+        cred_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY", "./firebase-service-account.json")
+        if os.path.exists(cred_path):
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+        else:
+            # For development, you can initialize without credentials if running on Google Cloud
+            firebase_admin.initialize_app()
+        logger.info("✅ Firebase Admin SDK initialized")
+    except Exception as e:
+        logger.warning(f"⚠️ Firebase Admin SDK initialization failed: {e}")
+
+# Initialize Firebase when starting the app
+initialize_firebase()
+
+# Security dependency
+security = HTTPBearer()
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Dependency to get current authenticated Firebase user"""
+    try:
+        # Verify the Firebase ID token
+        decoded_token = firebase_auth.verify_id_token(credentials.credentials)
+
+        # Extract user info from token
+        user_data = {
+            "user_id": decoded_token['uid'],
+            "email": decoded_token.get('email'),
+            "email_verified": decoded_token.get('email_verified', False),
+            "name": decoded_token.get('name'),
+            "picture": decoded_token.get('picture'),
+            "firebase_uid": decoded_token['uid']
+        }
+
+        # Get additional user data from Firestore if needed
+        # This is where you'd fetch the profession and other details
+        profession = get_user_profession_from_db(user_data['user_id'])
+        user_data['profession'] = profession
+
+        return user_data
+
+    except firebase_auth.InvalidIdTokenError:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    except firebase_auth.ExpiredIdTokenError:
+        raise HTTPException(status_code=401, detail="Expired Firebase ID token")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+def get_user_profession_from_db(firebase_uid: str) -> str:
+    """Get user profession from your SQLite database"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT profession FROM users WHERE firebase_uid = ?", (firebase_uid,))
+        result = cursor.fetchone()
+        conn.close()
+        return result[0] if result else "Professional"
+    except Exception:
+        return "Professional"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,56 +95,66 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "agent_x.db")
 def init_database():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            name TEXT,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            firebase_uid TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
             profession TEXT,
-            preferences TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            display_name TEXT,
+            photo_url TEXT,
+            email_verified BOOLEAN DEFAULT FALSE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_login DATETIME,
+            preferences JSON
         )
     ''')
+    # Updated other tables to use firebase_uid
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
+            firebase_uid TEXT NOT NULL,
             title TEXT,
             description TEXT,
             status TEXT DEFAULT 'pending',
             priority TEXT DEFAULT 'medium',
             due_date TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP
+            completed_at TIMESTAMP,
+            FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
         )
     ''')
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS calendar_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
+            firebase_uid TEXT NOT NULL,
             title TEXT,
             description TEXT,
             start_time TEXT,
             end_time TEXT,
             location TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
         )
     ''')
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT,
+            firebase_uid TEXT NOT NULL,
             user_message TEXT NOT NULL,
             assistant_response TEXT NOT NULL,
             agent_name TEXT,
             intent TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             session_id TEXT,
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
+            FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
         )
     ''')
     conn.commit()
     conn.close()
-    logger.info("✅ Database initialized successfully with conversation memory")
+    logger.info("✅ Database initialized with Firebase UID support")
 
 init_database()
 
@@ -205,23 +283,28 @@ def handle_name_storage(message: str, user_id: str, profession: str, context: st
         "requires_follow_up": False
     }
 
-def handle_name_query(message: str, user_id: str):
+def handle_name_query(message: str, user_id: str, context: str = ""):
     stored_name = get_user_name(user_id)
     if stored_name:
+        # Context-aware response
+        context_note = f"{context}**Current Request:**\n" if context else ""
+
         return {
             "agent_name": "PersonalAgent",
-            "response": f"Your name is **{stored_name}**! 👋 I remember you!",
+            "response": f"{context_note}Your name is **{stored_name}**! 👋 I remember you!",
             "type": "text",
-            "metadata": {"action": "name_retrieved", "name": stored_name},
+            "metadata": {"action": "name_retrieved", "name": stored_name, "has_context": bool(context)},
             "suggested_actions": ["Update my name", "Create a task", "Show my tasks"],
             "requires_follow_up": False
         }
     else:
+        context_note = f"{context}**Current Request:**\n" if context else ""
+
         return {
             "agent_name": "PersonalAgent",
-            "response": "🤔 I don't have your name stored yet.\n\nYou can tell me by saying:\n• 'My name is John Smith'\n• 'Call me Sarah'\n• 'I am Alex'",
+            "response": f"{context_note}🤔 I don't have your name stored yet.\n\nYou can tell me by saying:\n• 'My name is John Smith'\n• 'Call me Sarah'\n• 'I am Alex'",
             "type": "text",
-            "metadata": {"action": "name_request"},
+            "metadata": {"action": "name_request", "has_context": bool(context)},
             "suggested_actions": ["My name is John", "Call me Sarah"],
             "requires_follow_up": False
         }
@@ -252,7 +335,7 @@ def get_user_tasks(user_id: str, status: str = "pending"):
     conn.close()
     return tasks
 
-def handle_task_creation(message: str, user_id: str, profession: str):
+def handle_task_creation(message: str, user_id: str, profession: str, context: str = ""):
     task_title = message.replace("create task", "").replace("add task", "").replace("task to", "").replace("new task", "").strip()
     if not task_title or task_title == "to":
         task_title = "Complete the project"
@@ -262,46 +345,60 @@ def handle_task_creation(message: str, user_id: str, profession: str):
     elif "low priority" in message:
         priority = "low"
     task_id = save_task(user_id, task_title, "", priority)
+
+    # Context-aware response
+    context_note = f"{context}**Current Request:**\n" if context else ""
+
     return {
         "agent_name": "TaskAgent",
-        "response": f"✅ **Task Created & Saved!**\n\n📋 **Task:** {task_title}\n👤 **For:** {profession}\n🎯 **Priority:** {priority.title()}\n📅 **Created:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\nYour task has been saved permanently!",
+        "response": f"{context_note}✅ **Task Created & Saved!**\n\n📋 **Task:** {task_title}\n👤 **For:** {profession}\n🎯 **Priority:** {priority.title()}\n📅 **Created:** {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\nYour task has been saved permanently!",
         "type": "task",
-        "metadata": {"action": "task_created", "task_id": task_id, "task_title": task_title},
+        "metadata": {"action": "task_created", "task_id": task_id, "task_title": task_title, "has_context": bool(context)},
         "suggested_actions": ["View my tasks", "Create another task", "Set task priority"],
         "requires_follow_up": False
     }
 
-def handle_task_list(message: str, user_id: str):
+def handle_task_list(message: str, user_id: str, context: str = ""):
     tasks = get_user_tasks(user_id)
     if not tasks:
+        context_note = f"{context}**Current Request:**\n" if context else ""
+
         return {
             "agent_name": "TaskAgent",
-            "response": "📋 **No tasks found!**\n\nYou don't have any pending tasks right now. Would you like to create one?",
+            "response": f"{context_note}📋 **No tasks found!**\n\nYou don't have any pending tasks right now. Would you like to create one?",
             "type": "task",
-            "metadata": {"action": "empty_tasks"},
+            "metadata": {"action": "empty_tasks", "has_context": bool(context)},
             "suggested_actions": ["Create a task", "Add reminder", "Plan my day"],
             "requires_follow_up": False
         }
+
     tasks_text = f"📋 **Your Tasks ({len(tasks)} pending):**\n\n"
     for i, task in enumerate(tasks, 1):
         task_id, title, description, priority, created_at, due_date = task
         priority_emoji = "🔥" if priority == "high" else "⚡" if priority == "medium" else "📝"
         tasks_text += f"{i}. {priority_emoji} **{title}**\n   Created: {created_at[:10]}\n\n"
+
+    # Context-aware response
+    context_note = f"{context}**Current Request:**\n" if context else ""
+
     return {
         "agent_name": "TaskAgent",
-        "response": tasks_text,
+        "response": f"{context_note}{tasks_text}",
         "type": "task",
-        "metadata": {"action": "tasks_listed", "task_count": len(tasks)},
+        "metadata": {"action": "tasks_listed", "task_count": len(tasks), "has_context": bool(context)},
         "suggested_actions": ["Create another task", "Complete a task", "Set priorities"],
         "requires_follow_up": False
     }
 
-def handle_task_completion(message: str, user_id: str):
+def handle_task_completion(message: str, user_id: str, context: str = ""):
+    # Context-aware response
+    context_note = f"{context}**Current Request:**\n" if context else ""
+
     return {
         "agent_name": "TaskAgent",
-        "response": "🎉 **Task completed!** Great job staying productive!\n\nTo mark specific tasks as complete, try: 'Complete task [task name]'",
+        "response": f"{context_note}🎉 **Task completed!** Great job staying productive!\n\nTo mark specific tasks as complete, try: 'Complete task [task name]'",
         "type": "task",
-        "metadata": {"action": "task_completed"},
+        "metadata": {"action": "task_completed", "has_context": bool(context)},
         "suggested_actions": ["View remaining tasks", "Create new task"],
         "requires_follow_up": False
     }
@@ -327,27 +424,33 @@ def get_all_events(user_id: str):
     conn.close()
     return events
 
-async def handle_calendar_create(message: str, user_id: str):
+async def handle_calendar_create(message: str, user_id: str, context: str = ""):
     # Simple logic: any schedule/create gets a 'Meeting' on today at 10:00
     date = datetime.now().strftime("%Y-%m-%d")
     event_id = save_event(user_id, "Meeting", date, "10:00")
+
+    # Context-aware response
+    context_note = f"{context}**Current Request:**\n" if context else ""
+
     return {
         "agent_name": "CalendarAgent",
-        "response": f"✅ Successfully created event: 'Meeting' on {date} at 10:00",
+        "response": f"{context_note}✅ Successfully created event: 'Meeting' on {date} at 10:00",
         "type": "calendar",
-        "metadata": {"action": "event_created", "event_id": event_id, "date": date},
+        "metadata": {"action": "event_created", "event_id": event_id, "date": date, "has_context": bool(context)},
         "suggested_actions": ["View my calendar", "Create another event", "Set reminder"],
         "requires_follow_up": False
     }
 
-async def handle_calendar_list(user_id: str):
+async def handle_calendar_list(user_id: str, context: str = ""):
     events = get_all_events(user_id)
     if not events:
+        context_note = f"{context}**Current Request:**\n" if context else ""
+
         return {
             "agent_name": "CalendarAgent",
-            "response": "📅 You don't have any scheduled events yet. Would you like to create one?",
+            "response": f"{context_note}📅 You don't have any scheduled events yet. Would you like to create one?",
             "type": "calendar",
-            "metadata": {"action": "empty_calendar"},
+            "metadata": {"action": "empty_calendar", "has_context": bool(context)},
             "suggested_actions": ["Schedule a meeting", "Add personal event", "Set reminder"],
             "requires_follow_up": False
         }
@@ -356,41 +459,55 @@ async def handle_calendar_list(user_id: str):
     for title, dt in events:
         events_text += f"• **{title}** at {dt}\n"
 
+    # Context-aware response
+    context_note = f"{context}**Current Request:**\n" if context else ""
+
     return {
         "agent_name": "CalendarAgent",
-        "response": events_text,
+        "response": f"{context_note}{events_text}",
         "type": "calendar",
-        "metadata": {"action": "events_listed"},
+        "metadata": {"action": "events_listed", "has_context": bool(context)},
         "suggested_actions": ["Create new event", "Modify event", "Check availability"],
         "requires_follow_up": False
     }
 
-def handle_calendar_help():
+def handle_calendar_help(context: str = ""):
+    # Context-aware response
+    context_note = f"{context}**Current Request:**\n" if context else ""
+
     return {
         "agent_name": "CalendarAgent",
-        "response": "📅 **Calendar Management**\n\nI can help you manage your calendar events and show your scheduled meetings.",
+        "response": f"{context_note}📅 **Calendar Management**\n\nI can help you manage your calendar events and show your scheduled meetings.",
         "type": "calendar",
-        "metadata": {"action": "calendar_help"},
+        "metadata": {"action": "calendar_help", "has_context": bool(context)},
         "suggested_actions": ["Schedule a meeting", "Show my events"],
         "requires_follow_up": False
     }
 
-def handle_export(message: str, user_id: str):
+def handle_export(message: str, user_id: str, context: str = ""):
+    # Context-aware response
+    context_note = f"{context}**Current Request:**\n" if context else ""
+
     return {
         "agent_name": "ExportAgent",
-        "response": "📦 **Chat Export Ready!**\n\n📊 **Summary:**\n• Total conversations: 25\n• Format: JSON with metadata\n• Ready for download\n\nYour chat export has been prepared!",
+        "response": f"{context_note}📦 **Chat Export Ready!**\n\n📊 **Summary:**\n• Total conversations: 25\n• Format: JSON with metadata\n• Ready for download\n\nYour chat export has been prepared!",
         "type": "text",
-        "metadata": {"action": "export_prepared", "user_id": user_id},
+        "metadata": {"action": "export_prepared", "user_id": user_id, "has_context": bool(context)},
         "suggested_actions": ["Download now", "Export as text", "Cancel"],
         "requires_follow_up": False
     }
 
-def handle_general(message: str, user_id: str, profession: str):
+def handle_general(message: str, user_id: str, profession: str, context: str = ""):
+    base_response = f"Hello! I'm your AI assistant for {profession}s.\n\nI can help with:\n📋 **Task Management** - Create and track tasks\n📅 **Calendar** - Manage your schedule\n💾 **Data Export** - Backup your conversations\n👤 **Personal Info** - Remember your preferences\n\nWhat would you like to do?"
+
+    # Context-aware response
+    context_note = f"{context}**Current Request:**\n" if context else ""
+
     return {
         "agent_name": "GeneralAgent",
-        "response": f"Hello! I'm your AI assistant for {profession}s.\n\nI can help with:\n📋 **Task Management** - Create and track tasks\n📅 **Calendar** - Manage your schedule\n💾 **Data Export** - Backup your conversations\n👤 **Personal Info** - Remember your preferences\n\nWhat would you like to do?",
+        "response": f"{context_note}{base_response}",
         "type": "text",
-        "metadata": {"intent": "general_help", "profession": profession},
+        "metadata": {"intent": "general_help", "profession": profession, "has_context": bool(context)},
         "suggested_actions": ["Create a task", "Show my tasks", "Show my calendar", "Export my chat"],
         "requires_follow_up": False
     }
@@ -483,21 +600,112 @@ async def debug_events():
 @app.post("/api/clear_memory")
 async def clear_memory_endpoint(request: Request):
     data = await request.json()
-    user_id = data.get("user_id")
+    # user_id = data.get("user_id")
+    user_id = 'user_123'
+
+    # ADD THIS LOGGING
+    logger.info(f"🔍 CLEAR REQUEST - Received user_id: '{user_id}' (type: {type(user_id)})")
+    logger.info(f"🔍 CLEAR REQUEST - Full request data: {data}")
+
+    if not user_id:
+        return {"status": "error", "message": "User ID is required"}
+
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM calendar_events WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))  # NEW
+
+        # Check ALL users in database
+        cursor.execute("SELECT user_id FROM users")
+        all_users = cursor.fetchall()
+        logger.info(f"🔍 ALL USERS IN DB: {all_users}")
+
+        # Check ALL tasks
+        cursor.execute("SELECT DISTINCT user_id FROM tasks")
+        all_task_users = cursor.fetchall()
+        logger.info(f"🔍 ALL TASK USER_IDS: {all_task_users}")
+
+        # Check ALL events
+        cursor.execute("SELECT DISTINCT user_id FROM calendar_events")
+        all_event_users = cursor.fetchall()
+        logger.info(f"🔍 ALL EVENT USER_IDS: {all_event_users}")
+
+        # Now try the deletion with exact match
+        deleted_users = cursor.execute("DELETE FROM users WHERE user_id = ?", (user_id,)).rowcount
+        deleted_tasks = cursor.execute("DELETE FROM tasks WHERE user_id = ?", (user_id,)).rowcount
+        deleted_events = cursor.execute("DELETE FROM calendar_events WHERE user_id = ?", (user_id,)).rowcount
+        deleted_conversations = cursor.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,)).rowcount
+
         conn.commit()
         conn.close()
-        logger.info(f"🗑️ Cleared all data including conversations for {user_id}")
-        return {"status": "success", "message": "All data including conversation memory cleared successfully"}
+
+        logger.info(f"🗑️ Deletion results - Users: {deleted_users}, Tasks: {deleted_tasks}, Events: {deleted_events}, Conversations: {deleted_conversations}")
+
+        return {
+            "status": "success",
+            "message": f"Cleared data for user_id: {user_id}",
+            "deleted_counts": {
+                "users": deleted_users,
+                "tasks": deleted_tasks,
+                "events": deleted_events,
+                "conversations": deleted_conversations
+            }
+        }
+
     except Exception as e:
+        logger.error(f"❌ Clear memory error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+
+
+@app.get("/debug/data_status/{user_id}")
+async def debug_data_status(user_id: str):
+    """Debug endpoint to check all data for a user"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Count all data types
+        cursor.execute("SELECT COUNT(*) FROM users WHERE user_id = ?", (user_id,))
+        user_count = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = ?", (user_id,))
+        task_count = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM calendar_events WHERE user_id = ?", (user_id,))
+        event_count = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM conversations WHERE user_id = ?", (user_id,))
+        conv_count = cursor.fetchone()[0]
+
+        # Get actual data samples
+        cursor.execute("SELECT name FROM users WHERE user_id = ? LIMIT 1", (user_id,))
+        user_name = cursor.fetchone()
+
+        cursor.execute("SELECT title FROM tasks WHERE user_id = ? LIMIT 3", (user_id,))
+        sample_tasks = cursor.fetchall()
+
+        cursor.execute("SELECT title FROM calendar_events WHERE user_id = ? LIMIT 3", (user_id,))
+        sample_events = cursor.fetchall()
+
+        conn.close()
+
+        return {
+            "user_id": user_id,
+            "counts": {
+                "users": user_count,
+                "tasks": task_count,
+                "events": event_count,
+                "conversations": conv_count
+            },
+            "samples": {
+                "user_name": user_name[0] if user_name else None,
+                "tasks": [task[0] for task in sample_tasks],
+                "events": [event[0] for event in sample_events]
+            },
+            "db_path": DB_PATH
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/api/export_chat")
 async def export_chat_endpoint(request: Request):
