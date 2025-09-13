@@ -28,29 +28,25 @@ app.add_middleware(
 # Absolute DB path for reliability
 DB_PATH = os.path.join(os.path.dirname(__file__), "agent_x.db")
 
-# Initialize Firebase Admin SDK
 # Initialize Firebase Admin SDK with better error handling
 def initialize_firebase():
-    """Initialize Firebase Admin SDK with debug info"""
+    """Initialize Firebase Admin SDK with service account key"""
     try:
-        # Check for service account key
-        cred_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY", "./firebase-service-account.json")
-        logger.info(f"🔍 Looking for Firebase service account key at: {cred_path}")
+        # Path to your service account key
+        cred_path = os.path.join(os.path.dirname(__file__), "firebase-service-account.json")
 
         if os.path.exists(cred_path):
-            logger.info("✅ Firebase service account key found")
             cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(cred)
+            logger.info("✅ Firebase Admin SDK initialized with service account key")
         else:
-            logger.warning("⚠️ No Firebase service account key found, trying default credentials")
-            # Try to initialize without credentials (works on Google Cloud)
-            firebase_admin.initialize_app()
-
-        logger.info("✅ Firebase Admin SDK initialized successfully")
+            logger.error("❌ Firebase service account key not found at: " + cred_path)
+            logger.error("Please download the service account key from Firebase Console")
+            raise FileNotFoundError("Firebase service account key not found")
 
     except Exception as e:
         logger.error(f"❌ Firebase Admin SDK initialization failed: {e}")
-        logger.warning("🚧 Running without Firebase Auth - DEVELOPMENT MODE ONLY")
+        raise
 
 # Initialize Firebase when starting the app
 initialize_firebase()
@@ -59,7 +55,7 @@ initialize_firebase()
 security = HTTPBearer()
 
 # TODO: TEMPORARY: Add development mode bypass
-DEVELOPMENT_MODE = True  # Set to False in production
+DEVELOPMENT_MODE = False  # Set to False in production
 
 def migrate_database_to_firebase_uid():
     """Migrate existing database schema from user_id to firebase_uid"""
