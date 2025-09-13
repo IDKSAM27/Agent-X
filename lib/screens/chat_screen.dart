@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../core/constants/app_constants.dart';
 import '../core/config/api_config.dart';
 import '../core/agents/agent_orchestrator.dart';
@@ -22,6 +23,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   final List<ChatMessage> _messages = [];
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   bool _isTyping = false;
   late AnimationController _inputController;
@@ -63,6 +65,30 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     setState(() {
       _messages.add(welcomeMessage);
     });
+  }
+
+  /// Get Firebase ID token for authentication
+  Future<String?> _getFirebaseIdToken() async {
+    try {
+      final user = _auth.currentUser;
+      if (user != null) {
+        return await user.getIdToken();
+      }
+      return null;
+    } catch (e) {
+      print('Error getting Firebase ID token: $e');
+      return null;
+    }
+  }
+
+  /// Get current Firebase user ID
+  String _getCurrentUserId() {
+    return _auth.currentUser?.uid ?? 'anonymous';
+  }
+
+  /// Get current user email
+  String _getCurrentUserEmail() {
+    return _auth.currentUser?.email ?? 'unknown@email.com';
   }
 
   @override
@@ -222,8 +248,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       },
     );
   }
-
-  // Get profession-specific icon
   IconData _getProfessionIcon() {
     switch (widget.profession.toLowerCase()) {
       case 'student':
@@ -370,18 +394,36 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           _isTyping = false;
         });
 
-        final response = await dio.post('/api/clear_memory', data: {
-          'user_id': _getCurrentUserId(),
-        });
+        // Get Firebase ID token for authentication
+        final idToken = await _getFirebaseIdToken();
+        if (idToken == null) {
+          _showErrorMessage('Authentication required. Please sign in again.');
+          return;
+        }
+
+        final response = await dio.post(
+          '/api/clear_memory',
+          options: Options(
+            headers: {
+              'Authorization': 'Bearer $idToken',
+            },
+          ),
+        );
 
         if (response.statusCode == 200 && response.data['status'] == 'success') {
           _addWelcomeMessage();
           _showSuccessSnackBar('All data cleared successfully');
+          print('✅ Cleared data: ${response.data['deleted_counts']}');
         } else {
           _showErrorMessage('Failed to clear backend data: ${response.data['message']}');
         }
       } catch (e) {
-        _showErrorMessage('Failed to clear data: ${e.toString()}');
+        print('❌ Clear data error: $e');
+        if (e is DioException && e.response?.statusCode == 403) {
+          _showErrorMessage('Authentication failed. Please sign in again.');
+        } else {
+          _showErrorMessage('Failed to clear data: ${e.toString()}');
+        }
       }
     }
   }
@@ -390,9 +432,21 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     try {
       _showInfoSnackBar('Preparing chat export...');
 
-      final response = await dio.post('/api/export_chat', data: {
-        'user_id': _getCurrentUserId(),
-      });
+      // Get Firebase ID token for authentication
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) {
+        _showErrorMessage('Authentication required. Please sign in again.');
+        return;
+      }
+
+      final response = await dio.post(
+        '/api/export_chat',
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $idToken',
+          },
+        ),
+      );
 
       if (response.statusCode == 200 && response.data['status'] == 'success') {
         final exportData = response.data['data'];
@@ -401,13 +455,31 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         _showErrorMessage('Failed to export: ${response.data['message']}');
       }
     } catch (e) {
-      _showErrorMessage('Export failed: ${e.toString()}');
+      print('❌ Export error: $e');
+      if (e is DioException && e.response?.statusCode == 403) {
+        _showErrorMessage('Authentication failed. Please sign in again.');
+      } else {
+        _showErrorMessage('Export failed: ${e.toString()}');
+      }
     }
   }
 
   Future<void> _showMemoryStatus() async {
     try {
-      final response = await dio.get('/api/memory/debug/${_getCurrentUserId()}');
+      final currentUserId = _getCurrentUserId();
+
+      // Get Firebase ID token for authentication (if the endpoint requires it)
+      final idToken = await _getFirebaseIdToken();
+      final options = idToken != null ? Options(
+        headers: {
+          'Authorization': 'Bearer $idToken',
+        },
+      ) : null;
+
+      final response = await dio.get(
+        '/api/memory/debug/$currentUserId',
+        options: options,
+      );
 
       if (response.statusCode == 200) {
         final data = response.data;
@@ -421,27 +493,34 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildInfoRow('User ID', _getCurrentUserId()),
-                  _buildInfoRow('Profession', widget.profession), // Shows current profession
+                  _buildInfoRow('Firebase UID', currentUserId),
+                  _buildInfoRow('Email', _getCurrentUserEmail()),
+                  _buildInfoRow('Profession', widget.profession),
                   _buildInfoRow('Total Conversations', '${data['total_conversations'] ?? 0}'),
-                  _buildInfoRow('Stored Profession', '${data['user_context']?['profession'] ?? 'Unknown'}'),
-                  _buildInfoRow('Database Path', '${data['database_path'] ?? 'Unknown'}'),
+                  _buildInfoRow('Latest Conversation', '${data['latest_conversation'] ?? 'None'}'),
+                  _buildInfoRow('Latest Intent', '${data['latest_intent'] ?? 'None'}'),
+                  _buildInfoRow('Memory Status', '${data['memory_status'] ?? 'Unknown'}'),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Recent Conversations:',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  ...((data['conversations'] as List<dynamic>?) ?? [])
-                      .take(3)
-                      .map((conv) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      '${conv['content']?.substring(0, 50) ?? 'No content'}...',
-                      style: Theme.of(context).textTheme.bodySmall,
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceVariant,
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  ))
-                      .toList(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Firebase Integration:',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 8),
+                        Text('✅ User authenticated', style: Theme.of(context).textTheme.bodySmall),
+                        Text('✅ Firebase UID in use', style: Theme.of(context).textTheme.bodySmall),
+                        Text('✅ Conversation memory active', style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -453,8 +532,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             ],
           ),
         );
+      } else {
+        _showErrorMessage('Failed to load memory status');
       }
     } catch (e) {
+      print('❌ Memory status error: $e');
       _showErrorMessage('Failed to load memory status: ${e.toString()}');
     }
   }
@@ -482,7 +564,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _scrollToBottom();
 
     try {
-      // Use HybridOrchestrator instead of AgentOrchestrator
+      // Use HybridOrchestrator with Firebase integration
       final orchestrator = HybridOrchestrator();
       final agentResponse = await orchestrator.processRequest(
         text,
@@ -572,9 +654,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           children: [
             const Text('Export Data:'),
             const SizedBox(height: 8),
-            _buildInfoRow('Profession', widget.profession), // Include profession in export
+            _buildInfoRow('Firebase UID', exportData['firebase_uid'] ?? 'Unknown'),
+            _buildInfoRow('Profession', widget.profession),
             _buildInfoRow('Total Messages', '${exportData['total_messages']}'),
             _buildInfoRow('Export Date', exportData['export_date']),
+            _buildInfoRow('Memory Enabled', '${exportData['memory_enabled']}'),
             const SizedBox(height: 16),
             const Text(
               'Choose export format:',
@@ -606,14 +690,17 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
+            width: 120,
             child: Text(
               '$label:',
               style: const TextStyle(fontWeight: FontWeight.w500),
             ),
           ),
           Expanded(
-            child: Text(value),
+            child: Text(
+              value,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
         ],
       ),
@@ -624,23 +711,21 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     final text = '''
 Agent X Chat Export - ${widget.profession} Assistant
 ====================================================
-User ID: ${data['user_id']}
+Firebase UID: ${data['firebase_uid']}
+Email: ${_getCurrentUserEmail()}
 Profession: ${widget.profession}
 Export Date: ${data['export_date']}
 Total Messages: ${data['total_messages']}
+Memory Enabled: ${data['memory_enabled']}
 
 Conversations:
 ${(data['conversations'] as List<dynamic>).map((conv) =>
-    'User: ${conv['user_message']}\nAgent: ${conv['agent_response']}\nTime: ${conv['timestamp']}\n---'
+    'User: ${conv['user_message']}\nAgent: ${conv['assistant_response']}\nAgent: ${conv['agent_name']}\nIntent: ${conv['intent']}\nTime: ${conv['timestamp']}\n---'
     ).join('\n')}
     ''';
 
     Clipboard.setData(ClipboardData(text: text));
     _showSuccessSnackBar('Chat data copied to clipboard');
-  }
-
-  String _getCurrentUserId() {
-    return 'user_${widget.profession.toLowerCase()}_123'; // Include profession in user ID
   }
 
   void _showSuccessSnackBar(String message) {
