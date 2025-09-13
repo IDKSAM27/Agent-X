@@ -1,27 +1,25 @@
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 
-class LLMResponse:
-    """Data class for LLM responses"""
-    def __init__(self, content: str, function_calls: Optional[List[Dict]] = None, metadata: Optional[Dict] = None):
-        self.content = content
-        self.function_calls = function_calls or []
-        self.metadata = metadata or {}
-
-class BaseLLMClient(ABC):
-    """Abstract base class for LLM clients (Interface Segregation Principle)"""
+class BaseFunctionExecutor(ABC):
+    """Abstract base class for function executors"""
 
     @abstractmethod
-    async def generate_response(self, messages: List[Dict], functions: List[Dict]) -> LLMResponse:
-        """Generate response with function calling support"""
+    async def execute(self, function_name: str, firebase_uid: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a function with given arguments"""
         pass
 
-    @abstractmethod
-    async def simple_chat(self, message: str, context: str = "") -> str:
-        """Simple chat without function calling"""
-        pass
+    def _success_response(self, message: str, data: Dict = None) -> Dict[str, Any]:
+        """Standard success response"""
+        return {
+            "success": True,
+            "message": message,
+            "data": data or {}
+        }
 
-    @abstractmethod
-    def is_available(self) -> bool:
-        """Check if the LLM service is available"""
-        pass
+    def _error_response(self, error: str) -> Dict[str, Any]:
+        """Standard error response"""
+        return {
+            "success": False,
+            "error": error
+        }
