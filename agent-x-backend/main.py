@@ -55,7 +55,7 @@ initialize_firebase()
 security = HTTPBearer()
 
 # TODO: TEMPORARY: Add development mode bypass
-DEVELOPMENT_MODE = False  # Set to False in production
+DEVELOPMENT_MODE = True  # Set to False in production
 
 def migrate_database_to_firebase_uid():
     """Migrate existing database schema from user_id to firebase_uid"""
