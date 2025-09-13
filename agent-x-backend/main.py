@@ -29,20 +29,28 @@ app.add_middleware(
 DB_PATH = os.path.join(os.path.dirname(__file__), "agent_x.db")
 
 # Initialize Firebase Admin SDK
+# Initialize Firebase Admin SDK with better error handling
 def initialize_firebase():
-    """Initialize Firebase Admin SDK"""
+    """Initialize Firebase Admin SDK with debug info"""
     try:
-        # For production, use service account key
+        # Check for service account key
         cred_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY", "./firebase-service-account.json")
+        logger.info(f"🔍 Looking for Firebase service account key at: {cred_path}")
+
         if os.path.exists(cred_path):
+            logger.info("✅ Firebase service account key found")
             cred = credentials.Certificate(cred_path)
             firebase_admin.initialize_app(cred)
         else:
-            # For development, you can initialize without credentials if running on Google Cloud
+            logger.warning("⚠️ No Firebase service account key found, trying default credentials")
+            # Try to initialize without credentials (works on Google Cloud)
             firebase_admin.initialize_app()
-        logger.info("✅ Firebase Admin SDK initialized")
+
+        logger.info("✅ Firebase Admin SDK initialized successfully")
+
     except Exception as e:
-        logger.warning(f"⚠️ Firebase Admin SDK initialization failed: {e}")
+        logger.error(f"❌ Firebase Admin SDK initialization failed: {e}")
+        logger.warning("🚧 Running without Firebase Auth - DEVELOPMENT MODE ONLY")
 
 # Initialize Firebase when starting the app
 initialize_firebase()
@@ -50,34 +58,57 @@ initialize_firebase()
 # Security dependency
 security = HTTPBearer()
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Dependency to get current authenticated Firebase user"""
+# TODO: TEMPORARY: Add development mode bypass
+DEVELOPMENT_MODE = True  # Set to False in production
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer())):
+    """Dependency to get current authenticated Firebase user with debug info"""
+
+    # TEMPORARY: Development mode bypass
+    if DEVELOPMENT_MODE:
+        logger.warning("🚧 DEVELOPMENT MODE: Bypassing Firebase Auth")
+        return {
+            "user_id": "dev_user_123",
+            "firebase_uid": "dev_user_123",
+            "email": "dev@test.com",
+            "email_verified": True,
+            "name": "Dev User",
+            "profession": "Developer"
+        }
+
     try:
+        logger.info(f"🔍 Attempting to verify Firebase token")
+        logger.info(f"🔍 Token length: {len(credentials.credentials)}")
+        logger.info(f"🔍 Token preview: {credentials.credentials[:50]}...")
+
         # Verify the Firebase ID token
         decoded_token = firebase_auth.verify_id_token(credentials.credentials)
+        logger.info(f"✅ Token verified for user: {decoded_token.get('email')}")
 
         # Extract user info from token
         user_data = {
             "user_id": decoded_token['uid'],
+            "firebase_uid": decoded_token['uid'],
             "email": decoded_token.get('email'),
             "email_verified": decoded_token.get('email_verified', False),
             "name": decoded_token.get('name'),
             "picture": decoded_token.get('picture'),
-            "firebase_uid": decoded_token['uid']
         }
 
-        # Get additional user data from Firestore if needed
-        # This is where you'd fetch the profession and other details
-        profession = get_user_profession_from_db(user_data['user_id'])
+        # Get additional user data
+        profession = get_user_profession_from_db(user_data['firebase_uid'])
         user_data['profession'] = profession
 
         return user_data
 
-    except firebase_auth.InvalidIdTokenError:
-        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
-    except firebase_auth.ExpiredIdTokenError:                                   # I guess this is redundant, let's see what happens
-        raise HTTPException(status_code=401, detail="Expired Firebase ID token")
+    except firebase_auth.InvalidIdTokenError as e:
+        logger.error(f"❌ Invalid Firebase ID token: {e}")
+        raise HTTPException(status_code=401, detail=f"Invalid Firebase ID token: {str(e)}")
+    except firebase_auth.ExpiredIdTokenError as e:
+        logger.error(f"❌ Expired Firebase ID token: {e}")
+        raise HTTPException(status_code=401, detail=f"Expired Firebase ID token: {str(e)}")
     except Exception as e:
+        logger.error(f"❌ Firebase auth error: {e}")
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 def get_user_profession_from_db(firebase_uid: str) -> str:
@@ -177,7 +208,7 @@ async def process_agent(request: Request, current_user: dict = Depends(get_curre
     data = await request.json()
     message = data.get("message", "")
 
-    # Use Firebase UID as user_id
+    # Use Firebase UID consistently
     firebase_uid = current_user["firebase_uid"]
     profession = current_user.get("profession", "Professional")
 
@@ -186,7 +217,7 @@ async def process_agent(request: Request, current_user: dict = Depends(get_curre
     # Ensure user exists in local database
     ensure_user_exists_in_db(current_user)
 
-    # Get conversation history for context
+    # Get conversation history using firebase_uid
     recent_conversations = get_conversation_history(firebase_uid, limit=3)
     context_string = build_context_string(recent_conversations)
 
@@ -252,14 +283,14 @@ def ensure_user_exists_in_db(user_data: dict):
                 user_data.get("email"),
                 user_data.get("name"),
                 user_data.get("email_verified", False),
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                datetime.utcnow()
             ))
             conn.commit()
             logger.info(f"✅ Created local user record for Firebase UID: {user_data['firebase_uid']}")
         else:
             # Update last login
             cursor.execute("UPDATE users SET last_login = ? WHERE firebase_uid = ?",
-                           (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_data["firebase_uid"]))
+                           (datetime.utcnow(), user_data["firebase_uid"]))
             conn.commit()
 
         conn.close()
@@ -267,22 +298,22 @@ def ensure_user_exists_in_db(user_data: dict):
         logger.error(f"Error ensuring user exists: {e}")
 
 # Name storage/retrieval functions
-def save_user_name(user_id: str, name: str, profession: str):
+def save_user_name(firebase_uid: str, name: str, profession: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO users (user_id, name, profession) VALUES (?, ?, ?)', (user_id, name, profession))
+    cursor.execute('INSERT OR REPLACE INTO users (firebase_uid, display_name, profession) VALUES (?, ?, ?)', (firebase_uid, name, profession))
     conn.commit()
     conn.close()
-    logger.info(f"✅ Saved name: {name} for user {user_id}")
+    logger.info(f"✅ Saved name: {name} for Firebase UID {firebase_uid}")
 
-def get_user_name(user_id: str) -> str:
+def get_user_name(firebase_uid: str) -> str:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT name FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute('SELECT display_name FROM users WHERE firebase_uid = ?', (firebase_uid,))
     row = cursor.fetchone()
     conn.close()
     name = row[0] if row else ""
-    logger.info(f"📋 Retrieved name: {name} for user {user_id}")
+    logger.info(f"📋 Retrieved name: {name} for Firebase UID {firebase_uid}")
     return name
 
 def extract_name(message: str):
@@ -345,27 +376,27 @@ def handle_name_query(message: str, user_id: str, context: str = ""):
         }
 
 # Persistent tasks
-def save_task(user_id: str, title: str, description: str = "", priority: str = "medium"):
+def save_task(firebase_uid: str, title: str, description: str = "", priority: str = "medium"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT INTO tasks (user_id, title, description, priority)
+        INSERT INTO tasks (firebase_uid, title, description, priority)
         VALUES (?, ?, ?, ?)
-    ''', (user_id, title, description, priority))
+    ''', (firebase_uid, title, description, priority))
     conn.commit()
     task_id = cursor.lastrowid
     conn.close()
-    logger.info(f"✅ Saved task: {title}")
+    logger.info(f"✅ Saved task: {title} for Firebase UID {firebase_uid}")
     return task_id
 
-def get_user_tasks(user_id: str, status: str = "pending"):
+def get_user_tasks(firebase_uid: str, status: str = "pending"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         SELECT id, title, description, priority, created_at, due_date 
-        FROM tasks WHERE user_id = ? AND status = ?
+        FROM tasks WHERE firebase_uid = ? AND status = ?
         ORDER BY created_at DESC
-    ''', (user_id, status))
+    ''', (firebase_uid, status))
     tasks = cursor.fetchall()
     conn.close()
     return tasks
@@ -439,22 +470,22 @@ def handle_task_completion(message: str, user_id: str, context: str = ""):
     }
 
 # Persistent calendar events
-def save_event(user_id: str, title: str, date: str, time_: str = "10:00"):
+def save_event(firebase_uid: str, title: str, date: str, time_: str = "10:00"):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        'INSERT INTO calendar_events (user_id, title, start_time) VALUES (?, ?, ?)',
-        (user_id, title, f"{date} {time_}"))
+        'INSERT INTO calendar_events (firebase_uid, title, start_time) VALUES (?, ?, ?)',
+        (firebase_uid, title, f"{date} {time_}"))
     conn.commit()
     event_id = cursor.lastrowid
     conn.close()
-    logger.info(f"✅ Event saved: {title} for {date} {time_}")
+    logger.info(f"✅ Event saved: {title} for {date} {time_} - Firebase UID: {firebase_uid}")
     return event_id
 
-def get_all_events(user_id: str):
+def get_all_events(firebase_uid: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT title, start_time FROM calendar_events WHERE user_id = ?', (user_id,))
+    cursor.execute('SELECT title, start_time FROM calendar_events WHERE firebase_uid = ?', (firebase_uid,))
     events = cursor.fetchall()
     conn.close()
     return events
@@ -548,47 +579,47 @@ def handle_general(message: str, user_id: str, profession: str, context: str = "
     }
 
 # Conversation memory functions
-def save_conversation(user_id: str, user_message: str, assistant_response: str, agent_name: str, intent: str):
+def save_conversation(firebase_uid: str, user_message: str, assistant_response: str, agent_name: str, intent: str):
     """Save a conversation turn to persistent memory"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    session_id = f"session_{user_id}_{datetime.now().strftime('%Y%m%d')}"
+    session_id = f"session_{firebase_uid}_{datetime.now().strftime('%Y%m%d')}"
     cursor.execute('''
-        INSERT INTO conversations (user_id, user_message, assistant_response, agent_name, intent, session_id)
+        INSERT INTO conversations (firebase_uid, user_message, assistant_response, agent_name, intent, session_id)
         VALUES (?, ?, ?, ?, ?, ?)
-    ''', (user_id, user_message, assistant_response, agent_name, intent, session_id))
+    ''', (firebase_uid, user_message, assistant_response, agent_name, intent, session_id))
     conn.commit()
     conversation_id = cursor.lastrowid
     conn.close()
-    logger.info(f"💾 Saved conversation: {intent} for user {user_id}")
+    logger.info(f"💾 Saved conversation: {intent} for Firebase UID {firebase_uid}")
     return conversation_id
 
-def get_conversation_history(user_id: str, limit: int = 5):
+def get_conversation_history(firebase_uid: str, limit: int = 5):
     """Get recent conversation history for context"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         SELECT user_message, assistant_response, agent_name, intent, timestamp
         FROM conversations 
-        WHERE user_id = ?
+        WHERE firebase_uid = ?
         ORDER BY timestamp DESC
         LIMIT ?
-    ''', (user_id, limit))
+    ''', (firebase_uid, limit))
     conversations = cursor.fetchall()
     conn.close()
-    logger.info(f"📜 Retrieved {len(conversations)} conversations for {user_id}")
+    logger.info(f"📜 Retrieved {len(conversations)} conversations for Firebase UID {firebase_uid}")
     return conversations
 
-def get_all_conversations(user_id: str):
+def get_all_conversations(firebase_uid: str):
     """Get all conversations for a user (for export/debug)"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
         SELECT id, user_message, assistant_response, agent_name, intent, timestamp, session_id
         FROM conversations 
-        WHERE user_id = ?
+        WHERE firebase_uid = ?
         ORDER BY timestamp DESC
-    ''', (user_id,))
+    ''', (firebase_uid,))
     conversations = cursor.fetchall()
     conn.close()
     return conversations
@@ -664,40 +695,40 @@ async def clear_memory_endpoint(request: Request, current_user: dict = Depends(g
         logger.error(f"❌ Clear memory error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-@app.get("/debug/data_status/{user_id}")
-async def debug_data_status(user_id: str):
-    """Debug endpoint to check all data for a user"""
+@app.get("/debug/data_status/{firebase_uid}")
+async def debug_data_status(firebase_uid: str):
+    """Debug endpoint to check all data for a Firebase UID"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        # Count all data types
-        cursor.execute("SELECT COUNT(*) FROM users WHERE user_id = ?", (user_id,))
+        # Count all data types using firebase_uid
+        cursor.execute("SELECT COUNT(*) FROM users WHERE firebase_uid = ?", (firebase_uid,))
         user_count = cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(*) FROM tasks WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT COUNT(*) FROM tasks WHERE firebase_uid = ?", (firebase_uid,))
         task_count = cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(*) FROM calendar_events WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT COUNT(*) FROM calendar_events WHERE firebase_uid = ?", (firebase_uid,))
         event_count = cursor.fetchone()[0]
 
-        cursor.execute("SELECT COUNT(*) FROM conversations WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT COUNT(*) FROM conversations WHERE firebase_uid = ?", (firebase_uid,))
         conv_count = cursor.fetchone()[0]
 
         # Get actual data samples
-        cursor.execute("SELECT name FROM users WHERE user_id = ? LIMIT 1", (user_id,))
+        cursor.execute("SELECT display_name FROM users WHERE firebase_uid = ? LIMIT 1", (firebase_uid,))
         user_name = cursor.fetchone()
 
-        cursor.execute("SELECT title FROM tasks WHERE user_id = ? LIMIT 3", (user_id,))
+        cursor.execute("SELECT title FROM tasks WHERE firebase_uid = ? LIMIT 3", (firebase_uid,))
         sample_tasks = cursor.fetchall()
 
-        cursor.execute("SELECT title FROM calendar_events WHERE user_id = ? LIMIT 3", (user_id,))
+        cursor.execute("SELECT title FROM calendar_events WHERE firebase_uid = ? LIMIT 3", (firebase_uid,))
         sample_events = cursor.fetchall()
 
         conn.close()
 
         return {
-            "user_id": user_id,
+            "firebase_uid": firebase_uid,
             "counts": {
                 "users": user_count,
                 "tasks": task_count,
@@ -715,14 +746,13 @@ async def debug_data_status(user_id: str):
         return {"error": str(e)}
 
 @app.post("/api/export_chat")
-async def export_chat_endpoint(request: Request):
-    data = await request.json()
-    user_id = data.get("user_id")
-    profession = data.get("profession", "Unknown")
+async def export_chat_endpoint(request: Request, current_user: dict = Depends(get_current_user)):
+    firebase_uid = current_user["firebase_uid"]
+    profession = current_user.get("profession", "Unknown")
 
     try:
-        # Get all conversations from memory
-        all_conversations = get_all_conversations(user_id)
+        # Get all conversations from memory using firebase_uid
+        all_conversations = get_all_conversations(firebase_uid)
         conversations = []
 
         for conv in all_conversations:
@@ -740,7 +770,7 @@ async def export_chat_endpoint(request: Request):
         return {
             "status": "success",
             "data": {
-                "user_id": user_id,
+                "firebase_uid": firebase_uid,
                 "profession": profession,
                 "export_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "total_messages": len(conversations),
@@ -752,28 +782,28 @@ async def export_chat_endpoint(request: Request):
         logger.error(f"Export error: {e}")
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/memory/debug/{user_id}")
-async def debug_memory_status(user_id: str):
+@app.get("/api/memory/debug/{firebase_uid}")
+async def debug_memory_status(firebase_uid: str):
     """Debug endpoint to check memory status"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
         # Count conversations
-        cursor.execute('SELECT COUNT(*) FROM conversations WHERE user_id = ?', (user_id,))
+        cursor.execute('SELECT COUNT(*) FROM conversations WHERE firebase_uid = ?', (firebase_uid,))
         conv_count = cursor.fetchone()[0]
 
         # Get latest conversation
         cursor.execute('''
             SELECT timestamp, intent FROM conversations 
-            WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1
-        ''', (user_id,))
+            WHERE firebase_uid = ? ORDER BY timestamp DESC LIMIT 1
+        ''', (firebase_uid,))
         latest = cursor.fetchone()
 
         conn.close()
 
         return {
-            "user_id": user_id,
+            "firebase_uid": firebase_uid,
             "total_conversations": conv_count,
             "latest_conversation": latest[0] if latest else None,
             "latest_intent": latest[1] if latest else None,
@@ -783,11 +813,11 @@ async def debug_memory_status(user_id: str):
         return {"error": str(e)}
 
 # Conversation memory endpoints
-@app.get("/api/conversations/history/{user_id}")
-async def get_conversation_history_endpoint(user_id: str, limit: int = 10):
-    """Get conversation history for a user"""
+@app.get("/api/conversations/history/{firebase_uid}")
+async def get_conversation_history_endpoint(firebase_uid: str, limit: int = 10):
+    """Get conversation history for a Firebase UID"""
     try:
-        conversations = get_conversation_history(user_id, limit)
+        conversations = get_conversation_history(firebase_uid, limit)
         history = []
         for user_msg, assistant_resp, agent_name, intent, timestamp in conversations:
             history.append({
@@ -803,11 +833,11 @@ async def get_conversation_history_endpoint(user_id: str, limit: int = 10):
         logger.error(f"Error fetching conversation history: {e}")
         return {"status": "error", "message": str(e)}
 
-@app.get("/debug/conversations/{user_id}")
-async def debug_conversations(user_id: str):
-    """Debug endpoint to view all conversations for a user"""
+@app.get("/debug/conversations/{firebase_uid}")
+async def debug_conversations(firebase_uid: str):
+    """Debug endpoint to view all conversations for a Firebase UID"""
     try:
-        conversations = get_all_conversations(user_id)
+        conversations = get_all_conversations(firebase_uid)
         conv_list = []
         for conv in conversations:
             conv_id, user_msg, assistant_resp, agent_name, intent, timestamp, session_id = conv
