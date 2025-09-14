@@ -1,7 +1,7 @@
 import google.generativeai as genai
 from typing import Dict, List
 import logging
-from .base import BaseLLMClient, LLMResponse
+from llm.base import BaseLLMClient, LLMResponse
 
 logger = logging.getLogger(__name__)
 

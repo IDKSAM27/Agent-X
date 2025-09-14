@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from datetime import datetime
-from .base import BaseFunctionExecutor
-from ..database.operations import save_task, get_user_tasks
+from functions.base import BaseFunctionExecutor
+from database.operations import save_task, get_user_tasks
 import logging
 
 logger = logging.getLogger(__name__)

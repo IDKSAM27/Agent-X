@@ -1,6 +1,6 @@
 from typing import Dict, Any
-from .base import BaseFunctionExecutor
-from ..database.operations import save_user_name, get_user_name
+from functions.base import BaseFunctionExecutor
+from database.operations import save_user_name, get_user_name
 import logging
 
 logger = logging.getLogger(__name__)

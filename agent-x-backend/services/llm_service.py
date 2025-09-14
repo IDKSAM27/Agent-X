@@ -1,11 +1,11 @@
 from typing import Dict, List, Any
 import logging
-from ..llm.base import BaseLLMClient
-from ..llm.gemini_client import GeminiClient
-from ..llm.function_registry import FunctionRegistry
-from ..functions.task_functions import TaskFunctions
-from ..functions.calendar_functions import CalendarFunctions
-from ..functions.memory_functions import MemoryFunctions
+from llm.base import BaseLLMClient
+from llm.gemini_client import GeminiClient
+from llm.function_registry import FunctionRegistry
+from functions.task_functions import TaskFunctions
+from functions.calendar_functions import CalendarFunctions
+from functions.memory_functions import MemoryFunctions
 
 logger = logging.getLogger(__name__)
 

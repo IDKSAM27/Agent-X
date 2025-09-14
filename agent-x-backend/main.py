@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -6,11 +11,11 @@ from typing import Dict, Any, Optional, List
 import logging
 import uvicorn
 import sqlite3
-import os
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
 from services.llm_service import LLMService
 from dotenv import load_dotenv
 from database.operations import (
@@ -66,7 +71,7 @@ initialize_firebase()
 security = HTTPBearer()
 
 # TODO: TEMPORARY: Add development mode bypass
-DEVELOPMENT_MODE = True  # Set to False in production
+DEVELOPMENT_MODE = False # Set to False in production
 
 def migrate_database_to_firebase_uid():
     """Migrate existing database schema from user_id to firebase_uid"""
