@@ -29,8 +29,7 @@ class MemoryFunctions(BaseFunctionExecutor):
             return self._error_response("Name is required")
 
         if info_type == "name":
-            # Use your existing save_user_name function
-            save_user_name(firebase_uid, name, "Professional")  # You can extract profession from user context
+            save_user_name(firebase_uid, name, "Professional")
 
             logger.info(f"✅ LLM saved user name: {name} for {firebase_uid}")
 

@@ -11,12 +11,17 @@ import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from services.llm_service import LLMService
+from dotenv import load_dotenv
 from database.operations import (
     save_user_name, get_user_name, get_user_profession_from_db,
     save_task, get_user_tasks,
     save_event, get_all_events,
     save_conversation, get_conversation_history, get_all_conversations
 )
+
+# Load env variables
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -372,55 +377,44 @@ class AgentResponse(BaseModel):
 async def process_agent(request: Request, current_user: dict = Depends(get_current_user)):
     data = await request.json()
     message = data.get("message", "")
-
-    # Use Firebase UID consistently
     firebase_uid = current_user["firebase_uid"]
     profession = current_user.get("profession", "Professional")
 
-    logger.info(f"Processing: '{message}' from Firebase user {firebase_uid}")
+    logger.info(f"🤖 Processing: '{message}' from Firebase user {firebase_uid}")
 
     # Ensure user exists in local database
     ensure_user_exists_in_db(current_user)
 
-    # Get conversation history using firebase_uid
+    # Get conversation context
     recent_conversations = get_conversation_history(firebase_uid, limit=3)
     context_string = build_context_string(recent_conversations)
 
-    # Your existing intent detection and processing logic...
-    message_lower = message.lower()
+    # Try LLM first, fallback to rule-based
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
 
-    if any(phrase in message_lower for phrase in ["my name is", "call me", "i am"]):
-        response_data = handle_name_storage(message, firebase_uid, profession, context_string)
-        intent = "name_storage"
-    elif any(phrase in message_lower for phrase in ["what is my name", "who am i", "what am i called"]):
-        response_data = handle_name_query(message, firebase_uid, context_string)
-        intent = "name_query"
-    elif any(word in message_lower for word in ["export", "download", "save", "backup"]):
-        response_data = handle_export(message, firebase_uid, context_string)
-        intent = "export"
-    elif any(word in message_lower for word in ["create task", "add task", "task to", "new task"]):
-        response_data = handle_task_creation(message, firebase_uid, profession, context_string)
-        intent = "task_creation"
-    elif any(word in message_lower for word in ["list tasks", "show tasks", "view tasks", "my tasks"]):
-        response_data = handle_task_list(message, firebase_uid, context_string)
-        intent = "task_list"
-    elif any(word in message_lower for word in ["complete task", "finish task", "done task"]):
-        response_data = handle_task_completion(message, firebase_uid, context_string)
-        intent = "task_completion"
-    elif any(word in message_lower for word in ["schedule", "meeting", "add event", "create event"]):
-        response_data = await handle_calendar_create(message, firebase_uid, context_string)
-        intent = "calendar_create"
-    elif any(word in message_lower for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar", "show me calendar"]):
-        response_data = await handle_calendar_list(firebase_uid, context_string)
-        intent = "calendar_list"
-    elif any(word in message_lower for word in ["calendar", "event"]):
-        response_data = handle_calendar_help(context_string)
-        intent = "calendar_help"
+    if gemini_api_key:
+        try:
+            logger.info("🧠 Using LLM processing")
+            llm_service = LLMService(gemini_api_key)
+
+            response_data = await llm_service.process_message(
+                firebase_uid=firebase_uid,
+                message=message,
+                context=context_string,
+                profession=profession
+            )
+            intent = "llm_processed"
+
+        except Exception as e:
+            logger.error(f"❌ LLM processing failed, using fallback: {e}")
+            response_data = await _fallback_rule_based_processing(message, firebase_uid, profession, context_string)  # ✅ Add await here
+            intent = "fallback_processed"
     else:
-        response_data = handle_general(message, firebase_uid, profession, context_string)
-        intent = "general"
+        logger.info("🔧 Using rule-based processing (no API key)")
+        response_data = await _fallback_rule_based_processing(message, firebase_uid, profession, context_string)  # ✅ Add await here
+        intent = "rule_based"
 
-    # Save this conversation turn to memory
+    # Save conversation
     save_conversation(
         firebase_uid=firebase_uid,
         user_message=message,
@@ -429,7 +423,35 @@ async def process_agent(request: Request, current_user: dict = Depends(get_curre
         intent=intent
     )
 
+    logger.info(f"💾 Saved conversation for Firebase UID {firebase_uid}")
+
     return response_data
+
+async def _fallback_rule_based_processing(message: str, firebase_uid: str, profession: str, context: str):
+    """Your existing rule-based processing as fallback"""
+    message_lower = message.lower()
+
+    # Your existing intent detection logic (keep exactly as is)
+    if any(phrase in message_lower for phrase in ["my name is", "call me", "i am"]):
+        return handle_name_storage(message, firebase_uid, profession, context)
+    elif any(phrase in message_lower for phrase in ["what is my name", "who am i", "what am i called"]):
+        return handle_name_query(message, firebase_uid, context)
+    elif any(word in message_lower for word in ["export", "download", "save", "backup"]):
+        return handle_export(message, firebase_uid, context)
+    elif any(word in message_lower for word in ["create task", "add task", "task to", "new task"]):
+        return handle_task_creation(message, firebase_uid, profession, context)
+    elif any(word in message_lower for word in ["list tasks", "show tasks", "view tasks", "my tasks"]):
+        return handle_task_list(message, firebase_uid, context)
+    elif any(word in message_lower for word in ["complete task", "finish task", "done task"]):
+        return handle_task_completion(message, firebase_uid, context)
+    elif any(word in message_lower for word in ["schedule", "meeting", "add event", "create event"]):
+        return await handle_calendar_create(message, firebase_uid, context)
+    elif any(word in message_lower for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar", "show me calendar"]):
+        return await handle_calendar_list(firebase_uid, context)
+    elif any(word in message_lower for word in ["calendar", "event"]):
+        return handle_calendar_help(context)
+    else:
+        return handle_general(message, firebase_uid, profession, context)
 
 def ensure_user_exists_in_db(user_data: dict):
     """Ensure user exists in local database, create if not"""
