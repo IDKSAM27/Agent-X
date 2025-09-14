@@ -1,8 +1,7 @@
-# functions/task_functions.py
 from typing import Dict, Any
 from datetime import datetime
-from .base import BaseFunctionExecutor
-from database import save_task, get_user_tasks  # Import your existing DB functions
+from functions.base import BaseFunctionExecutor
+from database.operations import save_task, get_user_tasks
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,6 @@ class TaskFunctions(BaseFunctionExecutor):
         priority = args.get("priority", "medium")
         due_date = args.get("due_date")
 
-        # Use your existing save_task function
         task_id = save_task(
             firebase_uid=firebase_uid,
             title=title,
@@ -58,7 +56,6 @@ class TaskFunctions(BaseFunctionExecutor):
         """Get user tasks"""
         status = args.get("status", "pending")
 
-        # Use your existing get_user_tasks function
         tasks = get_user_tasks(firebase_uid, status)
 
         if not tasks:
@@ -67,7 +64,6 @@ class TaskFunctions(BaseFunctionExecutor):
                 {"tasks": [], "count": 0}
             )
 
-        # Format tasks for LLM
         formatted_tasks = []
         for task in tasks:
             task_id, title, description, priority, created_at, due_date = task

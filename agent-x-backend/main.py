@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -6,11 +11,23 @@ from typing import Dict, Any, Optional, List
 import logging
 import uvicorn
 import sqlite3
-import os
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.requests import ClientDisconnect
+
+from services.llm_service import LLMService
+from dotenv import load_dotenv
+from database.operations import (
+    save_user_name, get_user_name, get_user_profession_from_db,
+    save_task, get_user_tasks,
+    save_event, get_all_events,
+    save_conversation, get_conversation_history, get_all_conversations
+)
+
+# Load env variables
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,7 +72,7 @@ initialize_firebase()
 security = HTTPBearer()
 
 # TODO: TEMPORARY: Add development mode bypass
-DEVELOPMENT_MODE = True  # Set to False in production
+DEVELOPMENT_MODE = False # Set to False in production
 
 def migrate_database_to_firebase_uid():
     """Migrate existing database schema from user_id to firebase_uid"""
@@ -266,17 +283,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(HTTPBea
         logger.error(f"❌ Firebase auth error: {e}")
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
-def get_user_profession_from_db(firebase_uid: str) -> str:
-    """Get user profession from your SQLite database"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT profession FROM users WHERE firebase_uid = ?", (firebase_uid,))
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else "Professional"
-    except Exception:
-        return "Professional"
+
 
 def init_database():
     """Initialize database with migration support"""
@@ -374,66 +381,106 @@ class AgentResponse(BaseModel):
 
 @app.post("/api/agents/process")
 async def process_agent(request: Request, current_user: dict = Depends(get_current_user)):
-    data = await request.json()
-    message = data.get("message", "")
+    try:
+        data = await request.json()
+        message = data.get("message", "")
+        firebase_uid = current_user["firebase_uid"]
 
-    # Use Firebase UID consistently
-    firebase_uid = current_user["firebase_uid"]
-    profession = current_user.get("profession", "Professional")
+        # Fix: Get profession from context data sent by Flutter
+        context_data = data.get("context", {})
+        profession = context_data.get("profession", current_user.get("profession", "Professional"))
 
-    logger.info(f"Processing: '{message}' from Firebase user {firebase_uid}")
+        logger.info(f"🤖 Processing: '{message}' from Firebase user {firebase_uid} (profession: {profession})")
 
-    # Ensure user exists in local database
-    ensure_user_exists_in_db(current_user)
+        # Ensure user exists in local database
+        ensure_user_exists_in_db(current_user)
 
-    # Get conversation history using firebase_uid
-    recent_conversations = get_conversation_history(firebase_uid, limit=3)
-    context_string = build_context_string(recent_conversations)
+        # Get conversation context
+        recent_conversations = get_conversation_history(firebase_uid, limit=3)
+        context_string = build_context_string(recent_conversations)
 
-    # Your existing intent detection and processing logic...
+        # Try LLM first, fallback to rule-based
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+
+        if gemini_api_key:
+            try:
+                logger.info("🧠 Using LLM processing")
+                # Create LLM service instance
+                llm_service = LLMService(gemini_api_key)
+
+                response_data = await llm_service.process_message(
+                    firebase_uid=firebase_uid,
+                    message=message,
+                    context=context_string,
+                    profession=profession
+                )
+                intent = "llm_processed"
+
+            except Exception as e:
+                logger.error(f"❌ LLM processing failed, using fallback: {e}")
+                response_data = await _fallback_rule_based_processing(message, firebase_uid, profession, context_string)
+                intent = "fallback_processed"
+        else:
+            logger.info("🔧 Using rule-based processing (no API key)")
+            response_data = await _fallback_rule_based_processing(message, firebase_uid, profession, context_string)
+            intent = "rule_based"
+
+        # Save conversation
+        save_conversation(
+            firebase_uid=firebase_uid,
+            user_message=message,
+            assistant_response=response_data["response"],
+            agent_name=response_data["agent_name"],
+            intent=intent
+        )
+
+        logger.info(f"💾 Saved conversation for Firebase UID {firebase_uid}")
+
+        return response_data
+
+    except ClientDisconnect:
+        # Handle client disconnect gracefully
+        logger.warning(f"⚠️ Client disconnected during processing for user {firebase_uid}")
+        # Still try to save the conversation if we have the data
+        return {"error": "Client disconnected"}
+
+    except Exception as e:
+        logger.error(f"❌ Unexpected error in process_agent: {e}")
+        return {
+            "agent_name": "ErrorAgent",
+            "response": "I encountered an error processing your request. Please try again.",
+            "type": "text",
+            "metadata": {"error": str(e)},
+            "suggested_actions": ["Try again", "Ask a simpler question"],
+            "requires_follow_up": False
+        }
+
+
+async def _fallback_rule_based_processing(message: str, firebase_uid: str, profession: str, context: str):
+    """Your existing rule-based processing as fallback"""
     message_lower = message.lower()
 
+    # Your existing intent detection logic (keep exactly as is)
     if any(phrase in message_lower for phrase in ["my name is", "call me", "i am"]):
-        response_data = handle_name_storage(message, firebase_uid, profession, context_string)
-        intent = "name_storage"
+        return handle_name_storage(message, firebase_uid, profession, context)
     elif any(phrase in message_lower for phrase in ["what is my name", "who am i", "what am i called"]):
-        response_data = handle_name_query(message, firebase_uid, context_string)
-        intent = "name_query"
+        return handle_name_query(message, firebase_uid, context)
     elif any(word in message_lower for word in ["export", "download", "save", "backup"]):
-        response_data = handle_export(message, firebase_uid, context_string)
-        intent = "export"
+        return handle_export(message, firebase_uid, context)
     elif any(word in message_lower for word in ["create task", "add task", "task to", "new task"]):
-        response_data = handle_task_creation(message, firebase_uid, profession, context_string)
-        intent = "task_creation"
+        return handle_task_creation(message, firebase_uid, profession, context)
     elif any(word in message_lower for word in ["list tasks", "show tasks", "view tasks", "my tasks"]):
-        response_data = handle_task_list(message, firebase_uid, context_string)
-        intent = "task_list"
+        return handle_task_list(message, firebase_uid, context)
     elif any(word in message_lower for word in ["complete task", "finish task", "done task"]):
-        response_data = handle_task_completion(message, firebase_uid, context_string)
-        intent = "task_completion"
+        return handle_task_completion(message, firebase_uid, context)
     elif any(word in message_lower for word in ["schedule", "meeting", "add event", "create event"]):
-        response_data = await handle_calendar_create(message, firebase_uid, context_string)
-        intent = "calendar_create"
+        return await handle_calendar_create(message, firebase_uid, context)
     elif any(word in message_lower for word in ["list events", "show events", "view events", "my calendar", "show my calendar", "show calendar", "show me calendar"]):
-        response_data = await handle_calendar_list(firebase_uid, context_string)
-        intent = "calendar_list"
+        return await handle_calendar_list(firebase_uid, context)
     elif any(word in message_lower for word in ["calendar", "event"]):
-        response_data = handle_calendar_help(context_string)
-        intent = "calendar_help"
+        return handle_calendar_help(context)
     else:
-        response_data = handle_general(message, firebase_uid, profession, context_string)
-        intent = "general"
-
-    # Save this conversation turn to memory
-    save_conversation(
-        firebase_uid=firebase_uid,
-        user_message=message,
-        assistant_response=response_data["response"],
-        agent_name=response_data["agent_name"],
-        intent=intent
-    )
-
-    return response_data
+        return handle_general(message, firebase_uid, profession, context)
 
 def ensure_user_exists_in_db(user_data: dict):
     """Ensure user exists in local database, create if not"""
@@ -465,25 +512,6 @@ def ensure_user_exists_in_db(user_data: dict):
         conn.close()
     except Exception as e:
         logger.error(f"Error ensuring user exists: {e}")
-
-# Name storage/retrieval functions
-def save_user_name(firebase_uid: str, name: str, profession: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO users (firebase_uid, display_name, profession) VALUES (?, ?, ?)', (firebase_uid, name, profession))
-    conn.commit()
-    conn.close()
-    logger.info(f"✅ Saved name: {name} for Firebase UID {firebase_uid}")
-
-def get_user_name(firebase_uid: str) -> str:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('SELECT display_name FROM users WHERE firebase_uid = ?', (firebase_uid,))
-    row = cursor.fetchone()
-    conn.close()
-    name = row[0] if row else ""
-    logger.info(f"📋 Retrieved name: {name} for Firebase UID {firebase_uid}")
-    return name
 
 def extract_name(message: str):
     if "my name is" in message:
@@ -543,32 +571,6 @@ def handle_name_query(message: str, user_id: str, context: str = ""):
             "suggested_actions": ["My name is John", "Call me Sarah"],
             "requires_follow_up": False
         }
-
-# Persistent tasks
-def save_task(firebase_uid: str, title: str, description: str = "", priority: str = "medium"):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO tasks (firebase_uid, title, description, priority)
-        VALUES (?, ?, ?, ?)
-    ''', (firebase_uid, title, description, priority))
-    conn.commit()
-    task_id = cursor.lastrowid
-    conn.close()
-    logger.info(f"✅ Saved task: {title} for Firebase UID {firebase_uid}")
-    return task_id
-
-def get_user_tasks(firebase_uid: str, status: str = "pending"):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id, title, description, priority, created_at, due_date 
-        FROM tasks WHERE firebase_uid = ? AND status = ?
-        ORDER BY created_at DESC
-    ''', (firebase_uid, status))
-    tasks = cursor.fetchall()
-    conn.close()
-    return tasks
 
 def handle_task_creation(message: str, user_id: str, profession: str, context: str = ""):
     task_title = message.replace("create task", "").replace("add task", "").replace("task to", "").replace("new task", "").strip()
@@ -637,27 +639,6 @@ def handle_task_completion(message: str, user_id: str, context: str = ""):
         "suggested_actions": ["View remaining tasks", "Create new task"],
         "requires_follow_up": False
     }
-
-# Persistent calendar events
-def save_event(firebase_uid: str, title: str, date: str, time_: str = "10:00"):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        'INSERT INTO calendar_events (firebase_uid, title, start_time) VALUES (?, ?, ?)',
-        (firebase_uid, title, f"{date} {time_}"))
-    conn.commit()
-    event_id = cursor.lastrowid
-    conn.close()
-    logger.info(f"✅ Event saved: {title} for {date} {time_} - Firebase UID: {firebase_uid}")
-    return event_id
-
-def get_all_events(firebase_uid: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('SELECT title, start_time FROM calendar_events WHERE firebase_uid = ?', (firebase_uid,))
-    events = cursor.fetchall()
-    conn.close()
-    return events
 
 async def handle_calendar_create(message: str, user_id: str, context: str = ""):
     # Simple logic: any schedule/create gets a 'Meeting' on today at 10:00
@@ -746,52 +727,6 @@ def handle_general(message: str, user_id: str, profession: str, context: str = "
         "suggested_actions": ["Create a task", "Show my tasks", "Show my calendar", "Export my chat"],
         "requires_follow_up": False
     }
-
-# Conversation memory functions
-def save_conversation(firebase_uid: str, user_message: str, assistant_response: str, agent_name: str, intent: str):
-    """Save a conversation turn to persistent memory"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    session_id = f"session_{firebase_uid}_{datetime.now().strftime('%Y%m%d')}"
-    cursor.execute('''
-        INSERT INTO conversations (firebase_uid, user_message, assistant_response, agent_name, intent, session_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (firebase_uid, user_message, assistant_response, agent_name, intent, session_id))
-    conn.commit()
-    conversation_id = cursor.lastrowid
-    conn.close()
-    logger.info(f"💾 Saved conversation: {intent} for Firebase UID {firebase_uid}")
-    return conversation_id
-
-def get_conversation_history(firebase_uid: str, limit: int = 5):
-    """Get recent conversation history for context"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT user_message, assistant_response, agent_name, intent, timestamp
-        FROM conversations 
-        WHERE firebase_uid = ?
-        ORDER BY timestamp DESC
-        LIMIT ?
-    ''', (firebase_uid, limit))
-    conversations = cursor.fetchall()
-    conn.close()
-    logger.info(f"📜 Retrieved {len(conversations)} conversations for Firebase UID {firebase_uid}")
-    return conversations
-
-def get_all_conversations(firebase_uid: str):
-    """Get all conversations for a user (for export/debug)"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id, user_message, assistant_response, agent_name, intent, timestamp, session_id
-        FROM conversations 
-        WHERE firebase_uid = ?
-        ORDER BY timestamp DESC
-    ''', (firebase_uid,))
-    conversations = cursor.fetchall()
-    conn.close()
-    return conversations
 
 def build_context_string(conversations):
     """Build context string from recent conversations"""

@@ -79,19 +79,9 @@ class FunctionRegistry:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "title": {
-                            "type": "string",
-                            "description": "Event title"
-                        },
-                        "date": {
-                            "type": "string",
-                            "description": "Event date in YYYY-MM-DD format"
-                        },
-                        "time": {
-                            "type": "string",
-                            "description": "Event time in HH:MM format",
-                            "default": "10:00"
-                        }
+                        "title": {"type": "string", "description": "Event title"},
+                        "date": {"type": "string", "description": "Event date in YYYY-MM-DD format"},
+                        "time": {"type": "string", "description": "Event time in HH:MM format", "default": "10:00"}
                     },
                     "required": ["title", "date"]
                 }
@@ -102,7 +92,7 @@ class FunctionRegistry:
             "type": "function",
             "function": {
                 "name": "get_events",
-                "description": "Get user's calendar events",
+                "description": "Get user's calendar events and schedule",
                 "parameters": {
                     "type": "object",
                     "properties": {}
@@ -110,7 +100,7 @@ class FunctionRegistry:
             }
         })
 
-        # Memory Functions
+        # Memory/User Functions
         self.register_function("save_user_info", {
             "type": "function",
             "function": {
@@ -119,17 +109,24 @@ class FunctionRegistry:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "User's name"
-                        },
-                        "info_type": {
-                            "type": "string",
-                            "description": "Type of information being saved",
-                            "default": "name"
-                        }
+                        "name": {"type": "string", "description": "User's name"},
+                        "info_type": {"type": "string", "description": "Type of information", "default": "name"}
                     },
                     "required": ["name"]
+                }
+            }
+        })
+
+        self.register_function("get_user_info", {
+            "type": "function",
+            "function": {
+                "name": "get_user_info",
+                "description": "Get user's saved information like name",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "info_type": {"type": "string", "description": "Type of information to retrieve", "default": "name"}
+                    }
                 }
             }
         })

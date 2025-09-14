@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from datetime import datetime
-from .base import BaseFunctionExecutor
-from database import save_event, get_all_events  # Import your existing DB functions
+from functions.base import BaseFunctionExecutor
+from database.operations import save_event, get_all_events
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,15 +33,14 @@ class CalendarFunctions(BaseFunctionExecutor):
             return self._error_response("Event title is required")
 
         if not date:
-            return self._error_response("Event date is required")
+            # Use today's date as fallback
+            date = datetime.now().strftime("%Y-%m-%d")
 
-        # Validate date format
         try:
             datetime.strptime(date, "%Y-%m-%d")
         except ValueError:
             return self._error_response("Date must be in YYYY-MM-DD format")
 
-        # Use your existing save_event function
         event_id = save_event(
             firebase_uid=firebase_uid,
             title=title,
@@ -64,7 +63,6 @@ class CalendarFunctions(BaseFunctionExecutor):
 
     async def _get_events(self, firebase_uid: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get user events"""
-        # Use your existing get_all_events function
         events = get_all_events(firebase_uid)
 
         if not events:
@@ -73,7 +71,6 @@ class CalendarFunctions(BaseFunctionExecutor):
                 {"events": [], "count": 0}
             )
 
-        # Format events for LLM
         formatted_events = []
         for event in events:
             title, start_time = event
