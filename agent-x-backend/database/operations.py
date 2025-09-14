@@ -9,14 +9,33 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent_x.db")
 
 # --- USER / PROFILE
 def save_user_name(firebase_uid: str, name: str, profession: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        'INSERT OR REPLACE INTO users (firebase_uid, display_name, profession) VALUES (?, ?, ?)',
-        (firebase_uid, name, profession))
-    conn.commit()
-    conn.close()
-    logger.info(f"✅ Saved name: {name} for Firebase UID {firebase_uid}")
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)  # ✅ Add timeout
+    try:
+        cursor = conn.cursor()
+
+        # Fix: Update existing user instead of inserting new record
+        cursor.execute('''
+            UPDATE users SET display_name = ?, profession = ? 
+            WHERE firebase_uid = ?
+        ''', (name, profession, firebase_uid))
+
+        # If no rows were updated, the user doesn't exist yet
+        if cursor.rowcount == 0:
+            cursor.execute('''
+                INSERT INTO users (firebase_uid, display_name, profession, email, email_verified)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (firebase_uid, name, profession, f"{firebase_uid}@placeholder.com", True))
+
+        conn.commit()
+        logger.info(f"✅ Saved name: {name} for Firebase UID {firebase_uid}")
+
+    except Exception as e:
+        logger.error(f"❌ Error saving user name: {e}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
 
 def get_user_name(firebase_uid: str) -> str:
     conn = sqlite3.connect(DB_PATH)
