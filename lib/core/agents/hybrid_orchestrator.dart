@@ -18,8 +18,8 @@ class HybridOrchestrator {
         _dio = Dio(BaseOptions(
           baseUrl: ApiConfig.baseUrl,
           headers: ApiConfig.defaultHeaders,
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
+          connectTimeout: const Duration(seconds: 30), //TODO: og was 10 sec, change it afterwards
+          receiveTimeout: const Duration(seconds: 30),
         )),
         _localCoordinator = AgentCoordinator() {
 
