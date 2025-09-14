@@ -71,22 +71,23 @@ class LLMService:
 
     def _build_system_prompt(self, profession: str, context: str) -> str:
         """Build system prompt with user context"""
-        base_prompt = f"""You are Agent X, an AI assistant for {profession}s. You are helpful, professional, and knowledgeable.
+        base_prompt = f"""You are Agent X, an AI assistant specifically designed to help {profession}s. You are helpful, professional, and knowledgeable about {profession}-related work.
 
 You can help with:
-- Creating and managing tasks
-- Managing calendar events  
-- Remembering user information
-- Answering questions related to {profession} work
+- Creating and managing tasks (homework, lesson plans, grading, etc.)
+- Managing calendar events (classes, meetings, appointments)
+- Remembering user information and preferences
+- Answering questions related to {profession} work and responsibilities
 
 When users ask you to perform actions (create tasks, schedule events, etc.), use the provided functions.
-Always be conversational and helpful in your responses.
+Always be conversational, helpful, and reference their profession when relevant.
 
 {context}
 
-Remember to be context-aware and reference previous conversations when relevant."""
+Remember to be context-aware and reference previous conversations when relevant. Speak naturally as if you understand their profession and daily challenges."""
 
         return base_prompt
+
 
     async def _execute_functions(self, firebase_uid: str, function_calls: List[Dict], messages: List[Dict]) -> str:
         """Execute function calls and generate final response"""

@@ -15,6 +15,7 @@ import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.requests import ClientDisconnect
 
 from services.llm_service import LLMService
 from dotenv import load_dotenv
@@ -380,57 +381,80 @@ class AgentResponse(BaseModel):
 
 @app.post("/api/agents/process")
 async def process_agent(request: Request, current_user: dict = Depends(get_current_user)):
-    data = await request.json()
-    message = data.get("message", "")
-    firebase_uid = current_user["firebase_uid"]
-    profession = current_user.get("profession", "Professional")
+    try:
+        data = await request.json()
+        message = data.get("message", "")
+        firebase_uid = current_user["firebase_uid"]
 
-    logger.info(f"🤖 Processing: '{message}' from Firebase user {firebase_uid}")
+        # Fix: Get profession from context data sent by Flutter
+        context_data = data.get("context", {})
+        profession = context_data.get("profession", current_user.get("profession", "Professional"))
 
-    # Ensure user exists in local database
-    ensure_user_exists_in_db(current_user)
+        logger.info(f"🤖 Processing: '{message}' from Firebase user {firebase_uid} (profession: {profession})")
 
-    # Get conversation context
-    recent_conversations = get_conversation_history(firebase_uid, limit=3)
-    context_string = build_context_string(recent_conversations)
+        # Ensure user exists in local database
+        ensure_user_exists_in_db(current_user)
 
-    # Try LLM first, fallback to rule-based
-    gemini_api_key = os.getenv("GEMINI_API_KEY")
+        # Get conversation context
+        recent_conversations = get_conversation_history(firebase_uid, limit=3)
+        context_string = build_context_string(recent_conversations)
 
-    if gemini_api_key:
-        try:
-            logger.info("🧠 Using LLM processing")
-            llm_service = LLMService(gemini_api_key)
+        # Try LLM first, fallback to rule-based
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
 
-            response_data = await llm_service.process_message(
-                firebase_uid=firebase_uid,
-                message=message,
-                context=context_string,
-                profession=profession
-            )
-            intent = "llm_processed"
+        if gemini_api_key:
+            try:
+                logger.info("🧠 Using LLM processing")
+                # Create LLM service instance
+                llm_service = LLMService(gemini_api_key)
 
-        except Exception as e:
-            logger.error(f"❌ LLM processing failed, using fallback: {e}")
-            response_data = await _fallback_rule_based_processing(message, firebase_uid, profession, context_string)  # ✅ Add await here
-            intent = "fallback_processed"
-    else:
-        logger.info("🔧 Using rule-based processing (no API key)")
-        response_data = await _fallback_rule_based_processing(message, firebase_uid, profession, context_string)  # ✅ Add await here
-        intent = "rule_based"
+                response_data = await llm_service.process_message(
+                    firebase_uid=firebase_uid,
+                    message=message,
+                    context=context_string,
+                    profession=profession
+                )
+                intent = "llm_processed"
 
-    # Save conversation
-    save_conversation(
-        firebase_uid=firebase_uid,
-        user_message=message,
-        assistant_response=response_data["response"],
-        agent_name=response_data["agent_name"],
-        intent=intent
-    )
+            except Exception as e:
+                logger.error(f"❌ LLM processing failed, using fallback: {e}")
+                response_data = await _fallback_rule_based_processing(message, firebase_uid, profession, context_string)
+                intent = "fallback_processed"
+        else:
+            logger.info("🔧 Using rule-based processing (no API key)")
+            response_data = await _fallback_rule_based_processing(message, firebase_uid, profession, context_string)
+            intent = "rule_based"
 
-    logger.info(f"💾 Saved conversation for Firebase UID {firebase_uid}")
+        # Save conversation
+        save_conversation(
+            firebase_uid=firebase_uid,
+            user_message=message,
+            assistant_response=response_data["response"],
+            agent_name=response_data["agent_name"],
+            intent=intent
+        )
 
-    return response_data
+        logger.info(f"💾 Saved conversation for Firebase UID {firebase_uid}")
+
+        return response_data
+
+    except ClientDisconnect:
+        # Handle client disconnect gracefully
+        logger.warning(f"⚠️ Client disconnected during processing for user {firebase_uid}")
+        # Still try to save the conversation if we have the data
+        return {"error": "Client disconnected"}
+
+    except Exception as e:
+        logger.error(f"❌ Unexpected error in process_agent: {e}")
+        return {
+            "agent_name": "ErrorAgent",
+            "response": "I encountered an error processing your request. Please try again.",
+            "type": "text",
+            "metadata": {"error": str(e)},
+            "suggested_actions": ["Try again", "Ask a simpler question"],
+            "requires_follow_up": False
+        }
+
 
 async def _fallback_rule_based_processing(message: str, firebase_uid: str, profession: str, context: str):
     """Your existing rule-based processing as fallback"""

@@ -14,11 +14,13 @@ class GeminiClient(BaseLLMClient):
         self.model = genai.GenerativeModel(
             "gemini-2.5-flash",
             generation_config=genai.GenerationConfig(
-                temperature=0.7,
-                max_output_tokens=1000,
+                temperature=0.3,  # Lower temperature = faster
+                max_output_tokens=500,  # Fewer tokens = faster
+                candidate_count=1,  # Single candidate = faster
             )
         )
-        logger.info("✅ Gemini client initialized")
+        logger.info("✅ Gemini client initialized with optimized settings")
+
 
     async def generate_response(self, messages: List[Dict], functions: List[Dict]) -> LLMResponse:
         """Generate response with function calling"""
