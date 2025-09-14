@@ -11,6 +11,12 @@ import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from database.operations import (
+    save_user_name, get_user_name, get_user_profession_from_db,
+    save_task, get_user_tasks,
+    save_event, get_all_events,
+    save_conversation, get_conversation_history, get_all_conversations
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -266,17 +272,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(HTTPBea
         logger.error(f"❌ Firebase auth error: {e}")
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
-def get_user_profession_from_db(firebase_uid: str) -> str:
-    """Get user profession from your SQLite database"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT profession FROM users WHERE firebase_uid = ?", (firebase_uid,))
-        result = cursor.fetchone()
-        conn.close()
-        return result[0] if result else "Professional"
-    except Exception:
-        return "Professional"
+
 
 def init_database():
     """Initialize database with migration support"""
@@ -466,25 +462,6 @@ def ensure_user_exists_in_db(user_data: dict):
     except Exception as e:
         logger.error(f"Error ensuring user exists: {e}")
 
-# Name storage/retrieval functions
-def save_user_name(firebase_uid: str, name: str, profession: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO users (firebase_uid, display_name, profession) VALUES (?, ?, ?)', (firebase_uid, name, profession))
-    conn.commit()
-    conn.close()
-    logger.info(f"✅ Saved name: {name} for Firebase UID {firebase_uid}")
-
-def get_user_name(firebase_uid: str) -> str:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('SELECT display_name FROM users WHERE firebase_uid = ?', (firebase_uid,))
-    row = cursor.fetchone()
-    conn.close()
-    name = row[0] if row else ""
-    logger.info(f"📋 Retrieved name: {name} for Firebase UID {firebase_uid}")
-    return name
-
 def extract_name(message: str):
     if "my name is" in message:
         return message.split("my name is")[-1].split(".")[0].strip().title()
@@ -543,32 +520,6 @@ def handle_name_query(message: str, user_id: str, context: str = ""):
             "suggested_actions": ["My name is John", "Call me Sarah"],
             "requires_follow_up": False
         }
-
-# Persistent tasks
-def save_task(firebase_uid: str, title: str, description: str = "", priority: str = "medium"):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO tasks (firebase_uid, title, description, priority)
-        VALUES (?, ?, ?, ?)
-    ''', (firebase_uid, title, description, priority))
-    conn.commit()
-    task_id = cursor.lastrowid
-    conn.close()
-    logger.info(f"✅ Saved task: {title} for Firebase UID {firebase_uid}")
-    return task_id
-
-def get_user_tasks(firebase_uid: str, status: str = "pending"):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id, title, description, priority, created_at, due_date 
-        FROM tasks WHERE firebase_uid = ? AND status = ?
-        ORDER BY created_at DESC
-    ''', (firebase_uid, status))
-    tasks = cursor.fetchall()
-    conn.close()
-    return tasks
 
 def handle_task_creation(message: str, user_id: str, profession: str, context: str = ""):
     task_title = message.replace("create task", "").replace("add task", "").replace("task to", "").replace("new task", "").strip()
@@ -637,27 +588,6 @@ def handle_task_completion(message: str, user_id: str, context: str = ""):
         "suggested_actions": ["View remaining tasks", "Create new task"],
         "requires_follow_up": False
     }
-
-# Persistent calendar events
-def save_event(firebase_uid: str, title: str, date: str, time_: str = "10:00"):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        'INSERT INTO calendar_events (firebase_uid, title, start_time) VALUES (?, ?, ?)',
-        (firebase_uid, title, f"{date} {time_}"))
-    conn.commit()
-    event_id = cursor.lastrowid
-    conn.close()
-    logger.info(f"✅ Event saved: {title} for {date} {time_} - Firebase UID: {firebase_uid}")
-    return event_id
-
-def get_all_events(firebase_uid: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('SELECT title, start_time FROM calendar_events WHERE firebase_uid = ?', (firebase_uid,))
-    events = cursor.fetchall()
-    conn.close()
-    return events
 
 async def handle_calendar_create(message: str, user_id: str, context: str = ""):
     # Simple logic: any schedule/create gets a 'Meeting' on today at 10:00
@@ -746,52 +676,6 @@ def handle_general(message: str, user_id: str, profession: str, context: str = "
         "suggested_actions": ["Create a task", "Show my tasks", "Show my calendar", "Export my chat"],
         "requires_follow_up": False
     }
-
-# Conversation memory functions
-def save_conversation(firebase_uid: str, user_message: str, assistant_response: str, agent_name: str, intent: str):
-    """Save a conversation turn to persistent memory"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    session_id = f"session_{firebase_uid}_{datetime.now().strftime('%Y%m%d')}"
-    cursor.execute('''
-        INSERT INTO conversations (firebase_uid, user_message, assistant_response, agent_name, intent, session_id)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (firebase_uid, user_message, assistant_response, agent_name, intent, session_id))
-    conn.commit()
-    conversation_id = cursor.lastrowid
-    conn.close()
-    logger.info(f"💾 Saved conversation: {intent} for Firebase UID {firebase_uid}")
-    return conversation_id
-
-def get_conversation_history(firebase_uid: str, limit: int = 5):
-    """Get recent conversation history for context"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT user_message, assistant_response, agent_name, intent, timestamp
-        FROM conversations 
-        WHERE firebase_uid = ?
-        ORDER BY timestamp DESC
-        LIMIT ?
-    ''', (firebase_uid, limit))
-    conversations = cursor.fetchall()
-    conn.close()
-    logger.info(f"📜 Retrieved {len(conversations)} conversations for Firebase UID {firebase_uid}")
-    return conversations
-
-def get_all_conversations(firebase_uid: str):
-    """Get all conversations for a user (for export/debug)"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id, user_message, assistant_response, agent_name, intent, timestamp, session_id
-        FROM conversations 
-        WHERE firebase_uid = ?
-        ORDER BY timestamp DESC
-    ''', (firebase_uid,))
-    conversations = cursor.fetchall()
-    conn.close()
-    return conversations
 
 def build_context_string(conversations):
     """Build context string from recent conversations"""

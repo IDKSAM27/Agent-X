@@ -1,8 +1,8 @@
 from typing import Dict, Any
 from datetime import datetime
 from .base import BaseFunctionExecutor
-from database import save_event, get_all_events  # Import your existing DB functions
 import logging
+from ..database.operations import save_event, get_all_events
 
 logger = logging.getLogger(__name__)
 
