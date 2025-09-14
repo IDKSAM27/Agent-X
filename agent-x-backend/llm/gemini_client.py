@@ -134,22 +134,12 @@ class GeminiClient(BaseLLMClient):
             function_calls = []
             content = ""
 
-            # Extract text content
-            if hasattr(response, 'text') and response.text:
-                content = response.text
-            elif hasattr(response, 'candidates') and response.candidates:
-                # Try to extract text from candidates
-                for candidate in response.candidates:
-                    if hasattr(candidate, 'content') and candidate.content.parts:
-                        for part in candidate.content.parts:
-                            if hasattr(part, 'text') and part.text:
-                                content += part.text
-
-            # Extract function calls
+            # Extract function calls and text from candidates
             if hasattr(response, 'candidates') and response.candidates:
                 for candidate in response.candidates:
                     if hasattr(candidate, 'content') and candidate.content.parts:
                         for part in candidate.content.parts:
+                            # Extract function calls
                             if hasattr(part, 'function_call') and part.function_call:
                                 try:
                                     # Parse function call arguments
@@ -162,12 +152,31 @@ class GeminiClient(BaseLLMClient):
                                         "name": part.function_call.name,
                                         "arguments": args
                                     })
+
+                                    logger.info(f"🔧 Function call detected: {part.function_call.name} with args: {args}")
+
                                 except Exception as func_error:
                                     logger.warning(f"⚠️ Error parsing function call: {func_error}")
 
-            # Fallback content if none found
-            if not content and not function_calls:
-                content = "I understand your request but couldn't generate a proper response."
+                            # Extract text content (only if it's not a function call)
+                            elif hasattr(part, 'text') and part.text:
+                                content += part.text
+
+            # If we have function calls but no text, that's normal for function calling
+            if function_calls and not content:
+                content = f"I'll help you with that. Let me execute the requested action."
+                logger.info(f"✅ Function-only response detected with {len(function_calls)} function calls")
+
+            # If no function calls and no content, try the old way as fallback
+            elif not content and not function_calls:
+                try:
+                    if hasattr(response, 'text') and response.text:
+                        content = response.text
+                    else:
+                        content = "I understand your request but couldn't generate a proper response."
+                except Exception as text_error:
+                    logger.warning(f"⚠️ Could not extract text: {text_error}")
+                    content = "I understand your request but couldn't generate a proper response."
 
             return LLMResponse(
                 content=content,
@@ -175,7 +184,8 @@ class GeminiClient(BaseLLMClient):
                 metadata={
                     "model": "gemini-2.5-flash",
                     "provider": "google",
-                    "has_function_calls": len(function_calls) > 0
+                    "has_function_calls": len(function_calls) > 0,
+                    "function_count": len(function_calls)
                 }
             )
 
@@ -186,3 +196,4 @@ class GeminiClient(BaseLLMClient):
                 function_calls=[],
                 metadata={"error": str(e), "model": "gemini-2.5-flash", "provider": "google"}
             )
+
