@@ -23,7 +23,8 @@ from database.operations import (
     save_user_name, get_user_name, get_user_profession_from_db,
     save_task, get_user_tasks,
     save_event, get_all_events,
-    save_conversation, get_conversation_history, get_all_conversations
+    save_conversation, get_conversation_history, get_all_conversations,
+    migrate_database_schema
 )
 
 # Load env variables
@@ -286,84 +287,81 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(HTTPBea
 
 
 def init_database():
-    """Initialize database with migration support"""
+    """Initialize database with proper schema"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Check if any tables exist (for migration)
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    existing_tables = [table[0] for table in cursor.fetchall()]
-
-    # If tables exist but schema is old, run migration
-    if existing_tables and 'users' in existing_tables:
-        conn.close()
-        migrate_database_to_firebase_uid()
-        return
-
-    # Create fresh database with firebase_uid schema
+    # Users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             firebase_uid TEXT UNIQUE NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            profession TEXT,
             display_name TEXT,
-            photo_url TEXT,
-            email_verified BOOLEAN DEFAULT FALSE,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_login DATETIME,
-            preferences JSON
+            profession TEXT,
+            email TEXT,
+            email_verified INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            last_login TEXT
         )
     ''')
 
+    # Tasks table with ALL required columns
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             firebase_uid TEXT NOT NULL,
-            title TEXT,
-            description TEXT,
-            status TEXT DEFAULT 'pending',
+            title TEXT NOT NULL,
+            description TEXT DEFAULT '',
             priority TEXT DEFAULT 'medium',
+            category TEXT DEFAULT 'general',
             due_date TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP,
-            FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
+            is_completed INTEGER DEFAULT 0,
+            progress REAL DEFAULT 0.0,
+            tags TEXT DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
     ''')
 
+    # Events table with ALL required columns
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS calendar_events (
+        CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             firebase_uid TEXT NOT NULL,
-            title TEXT,
-            description TEXT,
-            start_time TEXT,
+            title TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            start_time TEXT NOT NULL,
             end_time TEXT,
+            category TEXT DEFAULT 'general',
+            priority TEXT DEFAULT 'medium',
             location TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
     ''')
 
+    # Conversations table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS conversations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             firebase_uid TEXT NOT NULL,
             user_message TEXT NOT NULL,
             assistant_response TEXT NOT NULL,
-            agent_name TEXT,
+            agent_name TEXT NOT NULL,
             intent TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            session_id TEXT,
-            FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
+            timestamp TEXT NOT NULL
         )
     ''')
 
     conn.commit()
     conn.close()
-    logger.info("✅ Database initialized with Firebase UID support")
+    logger.info("✅ Database initialized with complete schema")
+
 
 init_database()
+
+# migrate_database_schema()
+# logger.info("✅ Database schema migration completed")
 
 class AgentRequest(BaseModel):
     message: str
@@ -483,35 +481,45 @@ async def _fallback_rule_based_processing(message: str, firebase_uid: str, profe
         return handle_general(message, firebase_uid, profession, context)
 
 def ensure_user_exists_in_db(user_data: dict):
-    """Ensure user exists in local database, create if not"""
+    """Ensure user exists in local database"""
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
 
-        cursor.execute("SELECT firebase_uid FROM users WHERE firebase_uid = ?", (user_data["firebase_uid"],))
+        # Check if user exists
+        cursor.execute("SELECT firebase_uid FROM users WHERE firebase_uid = ?",
+                       (user_data["firebase_uid"],))
+
         if not cursor.fetchone():
-            # Create user record
+            # Add created_at when creating new user
+            now = datetime.now().isoformat()
             cursor.execute('''
-                INSERT INTO users (firebase_uid, email, display_name, email_verified, last_login)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO users (firebase_uid, display_name, profession, email, email_verified, created_at, last_login)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
                 user_data["firebase_uid"],
-                user_data.get("email"),
-                user_data.get("name"),
+                user_data.get("name", ""),
+                user_data.get("profession", ""),
+                user_data.get("email", ""),
                 user_data.get("email_verified", False),
-                datetime.utcnow()
+                now,  # Add this
+                now   # Add this
             ))
             conn.commit()
             logger.info(f"✅ Created local user record for Firebase UID: {user_data['firebase_uid']}")
         else:
-            # Update last login
+            # Update last_login for existing user
             cursor.execute("UPDATE users SET last_login = ? WHERE firebase_uid = ?",
-                           (datetime.utcnow(), user_data["firebase_uid"]))
+                           (datetime.now().isoformat(), user_data["firebase_uid"]))
             conn.commit()
 
         conn.close()
+
     except Exception as e:
-        logger.error(f"Error ensuring user exists: {e}")
+        logger.error(f"❌ Error ensuring user exists: {e}")
+        if conn:
+            conn.close()
+
 
 def extract_name(message: str):
     if "my name is" in message:

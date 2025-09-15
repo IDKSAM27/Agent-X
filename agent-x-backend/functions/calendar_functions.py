@@ -26,40 +26,52 @@ class CalendarFunctions(BaseFunctionExecutor):
     async def _create_event(self, firebase_uid: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Create a calendar event"""
         title = args.get("title", "").strip()
-        date = args.get("date", "").strip()
+        description = args.get("description", "")
+        date = args.get("date", "")
         time = args.get("time", "10:00")
+        category = args.get("category", "general")
+        priority = args.get("priority", "medium")
+        location = args.get("location", "")
 
         if not title:
             return self._error_response("Event title is required")
 
         if not date:
-            # Use today's date as fallback
-            date = datetime.now().strftime("%Y-%m-%d")
+            # Default to tomorrow if no date provided
+            from datetime import datetime, timedelta
+            date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # Combine date and time for start_time
+        start_time = f"{date} {time}"
 
         try:
-            datetime.strptime(date, "%Y-%m-%d")
-        except ValueError:
-            return self._error_response("Date must be in YYYY-MM-DD format")
+            event_id = save_event(
+                firebase_uid=firebase_uid,
+                title=title,
+                description=description,
+                start_time=start_time,
+                category=category,
+                priority=priority,
+                location=location
+            )
 
-        event_id = save_event(
-            firebase_uid=firebase_uid,
-            title=title,
-            date=date,
-            time_=time
-        )
+            logger.info(f"✅ LLM created event: {title} for {firebase_uid}")
 
-        logger.info(f"✅ LLM created event: {title} on {date} for {firebase_uid}")
+            return self._success_response(
+                f"✅ Created event '{title}' on {date} at {time}",
+                {
+                    "event_id": event_id,
+                    "title": title,
+                    "date": date,
+                    "time": time,
+                    "category": category,
+                    "priority": priority
+                }
+            )
 
-        return self._success_response(
-            f"Event '{title}' scheduled for {date} at {time}",
-            {
-                "event_id": event_id,
-                "title": title,
-                "date": date,
-                "time": time,
-                "created_at": datetime.now().isoformat()
-            }
-        )
+        except Exception as e:
+            logger.error(f"❌ Error creating event: {e}")
+            return self._error_response(f"Failed to create event: {str(e)}")
 
     async def _get_events(self, firebase_uid: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get user events"""
@@ -67,20 +79,34 @@ class CalendarFunctions(BaseFunctionExecutor):
 
         if not events:
             return self._success_response(
-                "No events found",
+                "📅 You don't have any scheduled events yet. Would you like to create one?",
                 {"events": [], "count": 0}
             )
 
+        # Format events for display
         formatted_events = []
+        event_summaries = []
+
         for event in events:
-            title, start_time = event
+            event_id, title, description, start_time, end_time, category, priority, location, created_at = event
+
             formatted_events.append({
+                "id": event_id,
                 "title": title,
-                "datetime": start_time
+                "description": description,
+                "start_time": start_time,
+                "category": category,
+                "priority": priority,
+                "location": location
             })
 
+            # Create summary for natural response
+            event_summaries.append(f"📅 **{title}** - {start_time}")
+
+        detailed_message = f"📅 **Your Upcoming Events ({len(events)} total):**\n\n" + "\n".join(event_summaries)
+
         return self._success_response(
-            f"Found {len(events)} events",
+            detailed_message,
             {
                 "events": formatted_events,
                 "count": len(events)
