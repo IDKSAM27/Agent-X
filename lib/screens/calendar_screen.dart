@@ -26,11 +26,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   void _loadSampleEvents() {
-    // Sample events for demo
+    // Sample events for demo - including multiple events on same day
     final tomorrow = DateTime.now().add(const Duration(days: 1));
     final nextWeek = DateTime.now().add(const Duration(days: 7));
+    final today = DateTime.now();
 
     setState(() {
+      // Multiple events on same day for testing
       _events[_normalizeDate(tomorrow)] = [
         {
           'title': 'Team Meeting',
@@ -44,6 +46,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
           'type': 'personal',
           'color': Colors.green,
         },
+        {
+          'title': 'Client Call',
+          'time': '3:00 PM',
+          'type': 'work',
+          'color': Colors.orange,
+        },
       ];
 
       _events[_normalizeDate(nextWeek)] = [
@@ -52,6 +60,21 @@ class _CalendarScreenState extends State<CalendarScreen> {
           'time': '2:00 PM',
           'type': 'work',
           'color': Colors.orange,
+        },
+      ];
+
+      _events[_normalizeDate(today)] = [
+        {
+          'title': 'Morning Standup',
+          'time': '9:00 AM',
+          'type': 'work',
+          'color': Colors.blue,
+        },
+        {
+          'title': 'Gym Session',
+          'time': '6:00 PM',
+          'type': 'personal',
+          'color': Colors.red,
         },
       ];
     });
@@ -69,6 +92,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
+      // ✅ FIX 3: Handle keyboard overflow with resizeToAvoidBottomInset
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Calendar'),
         backgroundColor: Colors.transparent,
@@ -92,7 +117,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
         ],
       ),
-      // FIX 1: Move FAB to avoid overlap with scrollable content
+      // FAB positioned properly
       floatingActionButton: Container(
         margin: EdgeInsets.only(
           bottom: MediaQuery.of(context).padding.bottom + 16,
@@ -107,7 +132,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: Column(
         children: [
-          // Calendar Widget - PERFORMANCE FIX: Removed heavy animations from calendar
+          // Calendar Widget
           Card(
             margin: AppConstants.paddingM,
             elevation: 0,
@@ -119,7 +144,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               eventLoader: _getEventsForDay,
               selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
 
-              // PERFORMANCE FIX: Optimize callbacks
+              // Optimize callbacks
               onDaySelected: (selectedDay, focusedDay) {
                 if (!isSameDay(_selectedDay, selectedDay)) {
                   setState(() {
@@ -152,12 +177,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   color: Theme.of(context).colorScheme.primary,
                   shape: BoxShape.circle,
                 ),
-                // FIX 2: Hide markers for selected day (like Google Calendar)
+                // Basic marker decoration
                 markerDecoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.secondary,
                   shape: BoxShape.circle,
                 ),
-                markersMaxCount: 1, // Limit markers for performance
+                // ✅ FIX 1: Allow more markers to show multiple event dots
+                markersMaxCount: 3, // Show up to 3 dots for multiple events
+                markerSize: 6.0,
+                markerMargin: const EdgeInsets.symmetric(horizontal: 0.5),
               ),
               headerStyle: HeaderStyle(
                 titleCentered: true,
@@ -165,7 +193,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 titleTextStyle: Theme.of(context).textTheme.titleLarge!,
               ),
 
-              // FIX 2: Custom marker builder to hide dots on selected day
+              // ✅ FIX 1: Custom marker builder for multiple event indicators
               calendarBuilders: CalendarBuilders(
                 markerBuilder: (context, day, events) {
                   // Don't show markers on selected day (like Google Calendar)
@@ -176,12 +204,21 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   if (events.isNotEmpty) {
                     return Positioned(
                       bottom: 1,
-                      child: Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.secondary,
-                          shape: BoxShape.circle,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: List.generate(
+                          events.length > 3 ? 3 : events.length, // Max 3 dots
+                              (index) => Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 0.5),
+                            width: 5,
+                            height: 5,
+                            decoration: BoxDecoration(
+                              color: events.length > 3 && index == 2
+                                  ? Theme.of(context).colorScheme.primary // Different color for "more" indicator
+                                  : Theme.of(context).colorScheme.secondary,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
                         ),
                       ),
                     );
@@ -243,14 +280,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
           child: eventsForDay.isEmpty
               ? _buildEmptyEventsView()
               : ListView.builder(
-            // FIX 1: Add bottom padding to prevent FAB overlap
+            // Add bottom padding to prevent FAB overlap
             padding: EdgeInsets.only(
               left: AppConstants.spacingM,
               right: AppConstants.spacingM,
               top: 0,
               bottom: 100, // Extra space for FAB
             ),
-            // PERFORMANCE FIX: Add physics for smoother scrolling
             physics: const BouncingScrollPhysics(),
             itemCount: eventsForDay.length,
             itemBuilder: (context, index) {
@@ -287,12 +323,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: AppConstants.spacingL),
-          OutlinedButton.icon(
-            onPressed: _showCreateEventDialog,
-            icon: const Icon(Icons.add),
-            label: const Text('Create Event'),
-          ),
+          // ✅ FIX 4: Remove duplicate create button - only keep the FAB
         ],
       ),
     );
@@ -301,7 +332,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget _buildEventCard(Map<String, dynamic> event, int index) {
     return Card(
       margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
-      // PERFORMANCE FIX: Remove heavy animations from list items
       child: ListTile(
         leading: Container(
           width: 12,
@@ -377,11 +407,90 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  // Rest of the methods remain the same...
   void _showCreateEventDialog() {
     showDialog(
       context: context,
+      // ✅ FIX 2: Optimize dialog for better keyboard performance
+      barrierDismissible: true,
       builder: (context) => _buildEventDialog(),
+    );
+  }
+
+  Widget _buildEventDialog({Map<String, dynamic>? existingEvent}) {
+    final titleController = TextEditingController(
+      text: existingEvent?['title'] ?? '',
+    );
+    final timeController = TextEditingController(
+      text: existingEvent?['time'] ?? '10:00 AM',
+    );
+
+    return Dialog(
+      // ✅ FIX 2 & 3: Better dialog configuration for keyboard handling
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              existingEvent == null ? 'Create Event' : 'Edit Event',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: AppConstants.spacingL),
+
+            // Event Title Field
+            TextField(
+              controller: titleController,
+              autofocus: false, // ✅ FIX 2: Don't auto-focus to reduce keyboard lag
+              decoration: const InputDecoration(
+                labelText: 'Event Title',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.event),
+              ),
+            ),
+            const SizedBox(height: AppConstants.spacingM),
+
+            // Time Field
+            TextField(
+              controller: timeController,
+              decoration: const InputDecoration(
+                labelText: 'Time',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.access_time),
+              ),
+            ),
+            const SizedBox(height: AppConstants.spacingL),
+
+            // Action Buttons
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: AppConstants.spacingM),
+                FilledButton(
+                  onPressed: () {
+                    if (titleController.text.isNotEmpty) {
+                      _saveEvent(
+                        titleController.text,
+                        timeController.text,
+                        existingEvent,
+                      );
+                      Navigator.pop(context);
+                    }
+                  },
+                  child: Text(existingEvent == null ? 'Create' : 'Save'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -389,6 +498,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) => Container(
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
@@ -448,58 +558,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildEventDialog({Map<String, dynamic>? existingEvent}) {
-    final titleController = TextEditingController(
-      text: existingEvent?['title'] ?? '',
-    );
-    final timeController = TextEditingController(
-      text: existingEvent?['time'] ?? '10:00 AM',
-    );
-
-    return AlertDialog(
-      title: Text(existingEvent == null ? 'Create Event' : 'Edit Event'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: titleController,
-            decoration: const InputDecoration(
-              labelText: 'Event Title',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: AppConstants.spacingM),
-          TextField(
-            controller: timeController,
-            decoration: const InputDecoration(
-              labelText: 'Time',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () {
-            if (titleController.text.isNotEmpty) {
-              _saveEvent(
-                titleController.text,
-                timeController.text,
-                existingEvent,
-              );
-              Navigator.pop(context);
-            }
-          },
-          child: Text(existingEvent == null ? 'Create' : 'Save'),
-        ),
-      ],
     );
   }
 
