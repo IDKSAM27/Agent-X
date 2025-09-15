@@ -116,7 +116,8 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
 
       // Sort by priority (high -> medium -> low)
       final priorityOrder = {'high': 0, 'medium': 1, 'low': 2};
-      final priorityComparison = priorityOrder[a.priority]!.compareTo(priorityOrder[b.priority]!);
+      final priorityComparison = priorityOrder[a.priority]!.compareTo(
+          priorityOrder[b.priority]!);
 
       if (priorityComparison != 0) return priorityComparison;
 
@@ -134,7 +135,10 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: Theme
+          .of(context)
+          .colorScheme
+          .surface,
       appBar: AppBar(
         title: const Text('Tasks'),
         backgroundColor: Colors.transparent,
@@ -167,7 +171,10 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
         onPressed: _showCreateTaskBottomSheet,
         icon: const Icon(Icons.add_task),
         label: const Text('New Task'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
+        backgroundColor: Theme
+            .of(context)
+            .colorScheme
+            .primary,
       ).animate().scale(delay: 600.ms),
       body: Column(
         children: [
@@ -175,7 +182,8 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           _buildStatsCard().animate().slideY(begin: -0.2, duration: 400.ms),
 
           // Category Filter
-          _buildCategoryFilter().animate().slideX(begin: -0.2, duration: 500.ms),
+          _buildCategoryFilter().animate().slideX(
+              begin: -0.2, duration: 500.ms),
 
           // Tasks List
           Expanded(
@@ -196,7 +204,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       margin: AppConstants.paddingM,
       elevation: 0,
       child: Container(
-        padding: AppConstants.cardPadding,
+        padding: const EdgeInsets.all(16), // Reduced padding
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
@@ -208,70 +216,70 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           ),
           borderRadius: BorderRadius.circular(AppConstants.radiusL),
         ),
-        child: Column(
+        child: Row( // Changed from Column to Row for horizontal layout
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Task Overview',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: AppConstants.spacingS),
-                      Text(
-                        '$completedTasks of $totalTasks completed',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '${(completionRate * 100).round()}%',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
+            // Left side - Text info
+            Expanded(
+              flex: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min, // Minimize height
+                children: [
+                  Text(
+                    'Task Overview',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4), // Reduced spacing
+                  Text(
+                    '$completedTasks of $totalTasks completed',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: AppConstants.spacingM),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildStatItem(
-                    'Pending',
+
+            // Middle - Stats
+            Expanded(
+              flex: 2,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildCompactStatItem(
                     pendingTasks.toString(),
-                    Icons.pending_actions,
+                    'Pending',
                     Theme.of(context).colorScheme.error,
                   ),
-                ),
-                const SizedBox(width: AppConstants.spacingM),
-                Expanded(
-                  child: _buildStatItem(
-                    'Completed',
+                  _buildCompactStatItem(
                     completedTasks.toString(),
-                    Icons.check_circle,
+                    'Done',
                     Theme.of(context).colorScheme.primary,
                   ),
+                ],
+              ),
+            ),
+
+            // Right side - Circular progress
+            Container(
+              width: 50, // Smaller circle
+              height: 50,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(25),
+              ),
+              child: Center(
+                child: Text(
+                  '${(completionRate * 100).round()}%',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14, // Smaller text
+                  ),
                 ),
-              ],
+              ),
             ),
           ],
         ),
@@ -279,7 +287,31 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     );
   }
 
-  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
+  Widget _buildCompactStatItem(String value, String label, Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          value,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: color,
+            fontWeight: FontWeight.w700,
+            fontSize: 18, // Compact size
+          ),
+        ),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: color,
+            fontSize: 11, // Smaller label
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, IconData icon,
+      Color color) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -296,14 +328,22 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
               children: [
                 Text(
                   value,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  style: Theme
+                      .of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(
                     color: color,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 Text(
                   label,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  style: Theme
+                      .of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(
                     color: color,
                   ),
                 ),
@@ -336,12 +376,24 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                   _selectedCategory = category;
                 });
               },
-              backgroundColor: Theme.of(context).colorScheme.surface,
-              selectedColor: Theme.of(context).colorScheme.primaryContainer,
+              backgroundColor: Theme
+                  .of(context)
+                  .colorScheme
+                  .surface,
+              selectedColor: Theme
+                  .of(context)
+                  .colorScheme
+                  .primaryContainer,
               labelStyle: TextStyle(
                 color: isSelected
-                    ? Theme.of(context).colorScheme.onPrimaryContainer
-                    : Theme.of(context).colorScheme.onSurface,
+                    ? Theme
+                    .of(context)
+                    .colorScheme
+                    .onPrimaryContainer
+                    : Theme
+                    .of(context)
+                    .colorScheme
+                    .onSurface,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
@@ -399,13 +451,24 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           Icon(
             icon,
             size: 64,
-            color: Theme.of(context).colorScheme.outline.withOpacity(0.5),
+            color: Theme
+                .of(context)
+                .colorScheme
+                .outline
+                .withOpacity(0.5),
           ),
           const SizedBox(height: AppConstants.spacingL),
           Text(
             message,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            style: Theme
+                .of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(
+              color: Theme
+                  .of(context)
+                  .colorScheme
+                  .onSurfaceVariant,
             ),
             textAlign: TextAlign.center,
           ),
@@ -450,13 +513,20 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                             Expanded(
                               child: Text(
                                 task.title,
-                                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                style: Theme
+                                    .of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(
                                   fontWeight: FontWeight.w600,
                                   decoration: task.isCompleted
                                       ? TextDecoration.lineThrough
                                       : null,
                                   color: task.isCompleted
-                                      ? Theme.of(context).colorScheme.onSurfaceVariant
+                                      ? Theme
+                                      .of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant
                                       : null,
                                 ),
                               ),
@@ -474,8 +544,15 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                         if (task.description.isNotEmpty)
                           Text(
                             task.description,
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            style: Theme
+                                .of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                              color: Theme
+                                  .of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
                             ),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -486,7 +563,8 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
 
                   // More options
                   PopupMenuButton(
-                    itemBuilder: (context) => [
+                    itemBuilder: (context) =>
+                    [
                       const PopupMenuItem(
                         value: 'edit',
                         child: Row(
@@ -508,7 +586,8 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                         ),
                       ),
                     ],
-                    onSelected: (value) => _handleTaskAction(value as String, task),
+                    onSelected: (value) =>
+                        _handleTaskAction(value as String, task),
                   ),
                 ],
               ),
@@ -529,7 +608,11 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                     ),
                     child: Text(
                       task.category,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      style: Theme
+                          .of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(
                         color: task.priorityColor,
                         fontWeight: FontWeight.w500,
                       ),
@@ -544,16 +627,32 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                       Icons.schedule,
                       size: 16,
                       color: task.isOverdue
-                          ? Theme.of(context).colorScheme.error
-                          : Theme.of(context).colorScheme.onSurfaceVariant,
+                          ? Theme
+                          .of(context)
+                          .colorScheme
+                          .error
+                          : Theme
+                          .of(context)
+                          .colorScheme
+                          .onSurfaceVariant,
                     ),
                     const SizedBox(width: AppConstants.spacingS),
                     Text(
                       task.dueStatus,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: Theme
+                          .of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(
                         color: task.isOverdue
-                            ? Theme.of(context).colorScheme.error
-                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                            ? Theme
+                            .of(context)
+                            .colorScheme
+                            .error
+                            : Theme
+                            .of(context)
+                            .colorScheme
+                            .onSurfaceVariant,
                         fontWeight: task.isOverdue ? FontWeight.w600 : null,
                       ),
                     ),
@@ -565,8 +664,15 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                   if (task.progress > 0 && !task.isCompleted) ...[
                     Text(
                       '${(task.progress * 100).round()}%',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
+                      style: Theme
+                          .of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(
+                        color: Theme
+                            .of(context)
+                            .colorScheme
+                            .primary,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -576,9 +682,16 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                       height: 4,
                       child: LinearProgressIndicator(
                         value: task.progress,
-                        backgroundColor: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                        backgroundColor: Theme
+                            .of(context)
+                            .colorScheme
+                            .outline
+                            .withOpacity(0.2),
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          Theme.of(context).colorScheme.primary,
+                          Theme
+                              .of(context)
+                              .colorScheme
+                              .primary,
                         ),
                       ),
                     ),
@@ -592,5 +705,816 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     ).animate(delay: (index * 100).ms).slideX(begin: 0.2).fadeIn();
   }
 
-// ... Continue with the rest of the methods (create task, edit, delete, etc.)
+  // Task Actions
+  void _toggleTaskCompletion(TaskItem task) {
+    setState(() {
+      final index = _tasks.indexWhere((t) => t.id == task.id);
+      if (index != -1) {
+        _tasks[index] = task.copyWith(
+          isCompleted: !task.isCompleted,
+          progress: !task.isCompleted ? 1.0 : task.progress,
+        );
+      }
+    });
+    // TODO: Update in database via backend
+  }
+
+  void _handleTaskAction(String action, TaskItem task) {
+    switch (action) {
+      case 'edit':
+        _showEditTaskBottomSheet(task);
+        break;
+      case 'delete':
+        _deleteTask(task);
+        break;
+    }
+  }
+
+  void _deleteTask(TaskItem task) {
+    showDialog(
+      context: context,
+      builder: (context) =>
+          AlertDialog(
+            title: const Text('Delete Task'),
+            content: Text('Delete "${task.title}"?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _tasks.removeWhere((t) => t.id == task.id);
+                  });
+                  Navigator.pop(context);
+                  // TODO: Delete from database
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: Theme
+                      .of(context)
+                      .colorScheme
+                      .error,
+                ),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+    );
+  }
+
+// Task Details Modal
+  void _showTaskDetails(TaskItem task) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) =>
+          Container(
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              top: 24,
+              bottom: MediaQuery
+                  .of(context)
+                  .padding
+                  .bottom + 24,
+            ),
+            decoration: BoxDecoration(
+              color: Theme
+                  .of(context)
+                  .colorScheme
+                  .surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(AppConstants.radiusL),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Handle bar
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme
+                          .of(context)
+                          .colorScheme
+                          .outline
+                          .withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingL),
+
+                // Task title with completion status
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        task.title,
+                        style: Theme
+                            .of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          decoration: task.isCompleted ? TextDecoration
+                              .lineThrough : null,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: task.isCompleted
+                            ? Colors.green.withOpacity(0.1)
+                            : task.priorityColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        task.isCompleted ? 'Completed' : task.priority
+                            .toUpperCase(),
+                        style: Theme
+                            .of(context)
+                            .textTheme
+                            .labelSmall
+                            ?.copyWith(
+                          color: task.isCompleted ? Colors.green : task
+                              .priorityColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Description
+                if (task.description.isNotEmpty) ...[
+                  const SizedBox(height: AppConstants.spacingM),
+                  Text(
+                    task.description,
+                    style: Theme
+                        .of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(
+                      color: Theme
+                          .of(context)
+                          .colorScheme
+                          .onSurfaceVariant,
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: AppConstants.spacingL),
+
+                // Task metadata
+                _buildTaskDetailRow(
+                  Icons.category,
+                  'Category',
+                  task.category.toUpperCase(),
+                ),
+
+                if (task.dueDate != null)
+                  _buildTaskDetailRow(
+                    Icons.schedule,
+                    'Due Date',
+                    task.dueStatus,
+                    isOverdue: task.isOverdue,
+                  ),
+
+                if (task.progress > 0 && !task.isCompleted)
+                  _buildTaskDetailRow(
+                    Icons.trending_up,
+                    'Progress',
+                    '${(task.progress * 100).round()}%',
+                  ),
+
+                if (task.tags.isNotEmpty) ...[
+                  const SizedBox(height: AppConstants.spacingM),
+                  Text(
+                    'Tags',
+                    style: Theme
+                        .of(context)
+                        .textTheme
+                        .labelLarge
+                        ?.copyWith(
+                      color: Theme
+                          .of(context)
+                          .colorScheme
+                          .onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.spacingS),
+                  Wrap(
+                    spacing: 8,
+                    children: task.tags.map((tag) =>
+                        Chip(
+                          label: Text(
+                            tag,
+                            style: Theme
+                                .of(context)
+                                .textTheme
+                                .labelSmall,
+                          ),
+                          backgroundColor: Theme
+                              .of(context)
+                              .colorScheme
+                              .secondaryContainer,
+                        )).toList(),
+                  ),
+                ],
+
+                const SizedBox(height: AppConstants.spacingL),
+
+                // Action buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _showEditTaskBottomSheet(task);
+                        },
+                        icon: const Icon(Icons.edit),
+                        label: const Text('Edit'),
+                      ),
+                    ),
+                    const SizedBox(width: AppConstants.spacingM),
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () {
+                          _toggleTaskCompletion(task);
+                          Navigator.pop(context);
+                        },
+                        icon: Icon(task.isCompleted ? Icons.undo : Icons.check),
+                        label: Text(task.isCompleted ? 'Undo' : 'Complete'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: task.isCompleted
+                              ? Theme
+                              .of(context)
+                              .colorScheme
+                              .secondary
+                              : Colors.green,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+    );
+  }
+
+  Widget _buildTaskDetailRow(IconData icon, String label, String value,
+      {bool isOverdue = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppConstants.spacingM),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: isOverdue
+                ? Theme
+                .of(context)
+                .colorScheme
+                .error
+                : Theme
+                .of(context)
+                .colorScheme
+                .onSurfaceVariant,
+          ),
+          const SizedBox(width: AppConstants.spacingM),
+          Text(
+            label,
+            style: Theme
+                .of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(
+              color: Theme
+                  .of(context)
+                  .colorScheme
+                  .onSurfaceVariant,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: Theme
+                .of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: isOverdue ? Theme
+                  .of(context)
+                  .colorScheme
+                  .error : null,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+// Create/Edit Task Bottom Sheet
+  void _showCreateTaskBottomSheet() {
+    _showTaskBottomSheet();
+  }
+
+  void _showEditTaskBottomSheet(TaskItem task) {
+    _showTaskBottomSheet(existingTask: task);
+  }
+
+  void _showTaskBottomSheet({TaskItem? existingTask}) {
+    final titleController = TextEditingController(
+        text: existingTask?.title ?? '');
+    final descriptionController = TextEditingController(
+        text: existingTask?.description ?? '');
+    String selectedPriority = existingTask?.priority ?? 'medium';
+    String selectedCategory = existingTask?.category ?? 'work';
+    DateTime? selectedDueDate = existingTask?.dueDate;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      enableDrag: true,
+      builder: (context) =>
+          StatefulBuilder(
+            builder: (context, setModalState) =>
+                Container(
+                  padding: EdgeInsets.only(
+                    left: 24,
+                    right: 24,
+                    top: 24,
+                    bottom: MediaQuery
+                        .of(context)
+                        .viewInsets
+                        .bottom + 24,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme
+                        .of(context)
+                        .colorScheme
+                        .surface,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(AppConstants.radiusL),
+                    ),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Handle bar
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Theme
+                                  .of(context)
+                                  .colorScheme
+                                  .outline
+                                  .withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppConstants.spacingL),
+
+                        // Title
+                        Text(
+                          existingTask == null ? 'Create Task' : 'Edit Task',
+                          style: Theme
+                              .of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: AppConstants.spacingL),
+
+                        // Task Title Field
+                        TextFormField(
+                          controller: titleController,
+                          decoration: InputDecoration(
+                            labelText: 'Task Title',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                  AppConstants.radiusM),
+                            ),
+                            prefixIcon: const Icon(Icons.task),
+                          ),
+                          textCapitalization: TextCapitalization.sentences,
+                        ),
+                        const SizedBox(height: AppConstants.spacingM),
+
+                        // Description Field
+                        TextFormField(
+                          controller: descriptionController,
+                          decoration: InputDecoration(
+                            labelText: 'Description (Optional)',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                  AppConstants.radiusM),
+                            ),
+                            prefixIcon: const Icon(Icons.description),
+                          ),
+                          maxLines: 3,
+                          textCapitalization: TextCapitalization.sentences,
+                        ),
+                        const SizedBox(height: AppConstants.spacingL),
+
+                        // Priority Selection
+                        Text(
+                          'Priority',
+                          style: Theme
+                              .of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: AppConstants.spacingM),
+                        Row(
+                          children: ['low', 'medium', 'high'].map((priority) {
+                            final isSelected = selectedPriority == priority;
+                            Color priorityColor;
+                            switch (priority) {
+                              case 'high':
+                                priorityColor = Colors.red;
+                                break;
+                              case 'medium':
+                                priorityColor = Colors.orange;
+                                break;
+                              default:
+                                priorityColor = Colors.green;
+                            }
+
+                            return Expanded(
+                              child: Container(
+                                margin: EdgeInsets.only(
+                                  right: priority != 'high' ? AppConstants
+                                      .spacingS : 0,
+                                ),
+                                child: FilterChip(
+                                  label: Text(priority.toUpperCase()),
+                                  selected: isSelected,
+                                  onSelected: (selected) {
+                                    setModalState(() {
+                                      selectedPriority = priority;
+                                    });
+                                  },
+                                  backgroundColor: priorityColor.withOpacity(
+                                      0.1),
+                                  selectedColor: priorityColor.withOpacity(0.2),
+                                  labelStyle: TextStyle(
+                                    color: priorityColor,
+                                    fontWeight: isSelected
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: AppConstants.spacingL),
+
+                        // Category Selection
+                        Text(
+                          'Category',
+                          style: Theme
+                              .of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: AppConstants.spacingM),
+                        Wrap(
+                          spacing: 8,
+                          children: ['work', 'personal', 'urgent'].map((
+                              category) {
+                            final isSelected = selectedCategory == category;
+                            return FilterChip(
+                              label: Text(category.toUpperCase()),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                setModalState(() {
+                                  selectedCategory = category;
+                                });
+                              },
+                              backgroundColor: Theme
+                                  .of(context)
+                                  .colorScheme
+                                  .surfaceVariant,
+                              selectedColor: Theme
+                                  .of(context)
+                                  .colorScheme
+                                  .primaryContainer,
+                              labelStyle: TextStyle(
+                                color: isSelected
+                                    ? Theme
+                                    .of(context)
+                                    .colorScheme
+                                    .onPrimaryContainer
+                                    : Theme
+                                    .of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                                fontWeight: isSelected
+                                    ? FontWeight.w600
+                                    : FontWeight.normal,
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                        const SizedBox(height: AppConstants.spacingL),
+
+                        // Due Date Selection
+                        Row(
+                          children: [
+                            Text(
+                              'Due Date',
+                              style: Theme
+                                  .of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const Spacer(),
+                            if (selectedDueDate != null) ...[
+                              Text(
+                                '${selectedDueDate!.day}/${selectedDueDate!
+                                    .month}/${selectedDueDate!.year}',
+                                style: Theme
+                                    .of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
+                                  color: Theme
+                                      .of(context)
+                                      .colorScheme
+                                      .primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () {
+                                  setModalState(() {
+                                    selectedDueDate = null;
+                                  });
+                                },
+                                icon: const Icon(Icons.clear),
+                                iconSize: 20,
+                              ),
+                            ] else
+                              OutlinedButton.icon(
+                                onPressed: () =>
+                                    _selectDueDate(context, setModalState,
+                                        selectedDueDate),
+                                icon: const Icon(Icons.calendar_today),
+                                label: const Text('Set Due Date'),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: AppConstants.spacingL),
+
+                        // Action Buttons
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(context),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12),
+                                ),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: AppConstants.spacingM),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () {
+                                  if (titleController.text.isNotEmpty) {
+                                    _saveTask(
+                                      titleController.text,
+                                      descriptionController.text,
+                                      selectedPriority,
+                                      selectedCategory,
+                                      selectedDueDate,
+                                      existingTask,
+                                    );
+                                    Navigator.pop(context);
+                                  }
+                                },
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12),
+                                ),
+                                child: Text(existingTask == null
+                                    ? 'Create'
+                                    : 'Save'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+          ),
+    );
+  }
+
+  void _selectDueDate(BuildContext context, StateSetter setModalState,
+      DateTime? currentDate) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: currentDate ?? DateTime.now().add(const Duration(days: 1)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            datePickerTheme: DatePickerThemeData(
+              backgroundColor: Theme
+                  .of(context)
+                  .colorScheme
+                  .surface,
+              headerBackgroundColor: Theme
+                  .of(context)
+                  .colorScheme
+                  .primaryContainer,
+              headerForegroundColor: Theme
+                  .of(context)
+                  .colorScheme
+                  .onPrimaryContainer,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      setModalState(() {
+        // Set selectedDueDate in the modal state
+      });
+      setState(() {
+        // Update the main widget state if needed
+      });
+    }
+  }
+
+  void _saveTask(String title,
+      String description,
+      String priority,
+      String category,
+      DateTime? dueDate,
+      TaskItem? existingTask,) {
+    if (existingTask == null) {
+      // Create new task
+      final newTask = TaskItem(
+        id: DateTime
+            .now()
+            .millisecondsSinceEpoch
+            .toString(),
+        title: title,
+        description: description,
+        priority: priority,
+        category: category,
+        dueDate: dueDate,
+      );
+
+      setState(() {
+        _tasks.add(newTask);
+      });
+    } else {
+      // Update existing task
+      setState(() {
+        final index = _tasks.indexWhere((t) => t.id == existingTask.id);
+        if (index != -1) {
+          _tasks[index] = existingTask.copyWith(
+            title: title,
+            description: description,
+            priority: priority,
+            category: category,
+            dueDate: dueDate,
+          );
+        }
+      });
+    }
+    // TODO: Save to database via backend
+  }
+
+// Search and Filter
+  void _showSearchDialog() {
+    showDialog(
+      context: context,
+      builder: (context) =>
+          AlertDialog(
+            title: const Text('Search Tasks'),
+            content: TextField(
+              decoration: const InputDecoration(
+                labelText: 'Search by title or description',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (query) {
+                // TODO: Implement real-time search
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _showFilterOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) =>
+          Container(
+            decoration: BoxDecoration(
+              color: Theme
+                  .of(context)
+                  .colorScheme
+                  .surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(AppConstants.radiusL),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: AppConstants.spacingM),
+                  decoration: BoxDecoration(
+                    color: Theme
+                        .of(context)
+                        .colorScheme
+                        .outline
+                        .withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingL),
+
+                ListTile(
+                  leading: const Icon(Icons.sort),
+                  title: const Text('Sort by Priority'),
+                  onTap: () {
+                    // TODO: Implement sorting
+                    Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.filter_list),
+                  title: const Text('Filter by Category'),
+                  onTap: () {
+                    // TODO: Implement category filter
+                    Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.schedule),
+                  title: const Text('Filter by Due Date'),
+                  onTap: () {
+                    // TODO: Implement due date filter
+                    Navigator.pop(context);
+                  },
+                ),
+
+                const SizedBox(height: AppConstants.spacingL),
+              ],
+            ),
+          ),
+    );
+  }
+}
 
