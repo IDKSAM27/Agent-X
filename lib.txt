@@ -1,0 +1,50 @@
+lib
+├── core
+│   ├── agents
+│   │   ├── agent_orchestrator.dart
+│   │   ├── base
+│   │   ├── base_agent.dart
+│   │   ├── hybrid_orchestrator.dart
+│   │   └── specialized
+│   ├── config
+│   │   └── api_config.dart
+│   ├── constants
+│   │   └── app_constants.dart
+│   ├── intelligence
+│   │   └── intent_classifier.dart
+│   ├── theme
+│   │   ├── app_theme.dart
+│   │   └── theme_controller.dart
+│   └── widgets
+│       └── auth_gate.dart
+├── firebase_options.dart
+├── home_screen.dart
+├── main.dart
+├── models
+│   ├── chat_message.dart
+│   ├── news_model.dart
+│   └── user_profile.dart
+├── screens
+│   ├── calendar_screen.dart
+│   ├── chat_screen.dart
+│   ├── clock_screen.dart
+│   ├── home_screen.dart
+│   ├── login_screen.dart
+│   ├── profession_input_screen.dart
+│   └── signup_screen.dart
+├── services
+│   ├── chat_service.dart
+│   ├── firebase_service.dart
+│   └── news_service.dart
+└── widgets
+    ├── animated_typing_text.dart
+    ├── app_logo.dart
+    ├── calendar_response_card.dart
+    ├── chat_bubble.dart
+    ├── dashboard_card.dart
+    ├── enhanced_chat_bubble.dart
+    ├── news_card.dart
+    ├── quick_action_tile.dart
+    └── typing_indicator.dart
+
+14 directories, 34 files

@@ -24,33 +24,47 @@ class TaskFunctions(BaseFunctionExecutor):
             return self._error_response(str(e))
 
     async def _create_task(self, firebase_uid: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a new task"""
+        """Create a task"""
         title = args.get("title", "").strip()
+        description = args.get("description", "")
+        priority = args.get("priority", "medium")
+        category = args.get("category", "general")
+        due_date = args.get("due_date", None)
+
         if not title:
             return self._error_response("Task title is required")
 
-        priority = args.get("priority", "medium")
-        due_date = args.get("due_date")
+        try:
+            task_id = save_task(
+                firebase_uid=firebase_uid,
+                title=title,
+                description=description,
+                priority=priority,
+                category=category,
+                due_date=due_date
+            )
 
-        task_id = save_task(
-            firebase_uid=firebase_uid,
-            title=title,
-            description="",
-            priority=priority
-        )
+            logger.info(f"✅ LLM created task: {title} for {firebase_uid}")
 
-        logger.info(f"✅ LLM created task: {title} for {firebase_uid}")
+            due_text = f" (due {due_date})" if due_date else ""
+            priority_emoji = "🔥" if priority == "high" else "⚡" if priority == "medium" else "📝"
 
-        return self._success_response(
-            f"Task '{title}' created with {priority} priority",
-            {
-                "task_id": task_id,
-                "title": title,
-                "priority": priority,
-                "due_date": due_date,
-                "created_at": datetime.now().isoformat()
-            }
-        )
+            return self._success_response(
+                f"✅ Created {priority} priority task: '{title}'{due_text}",
+                {
+                    "task_id": task_id,
+                    "title": title,
+                    "priority": priority,
+                    "category": category,
+                    "due_date": due_date,
+                    "emoji": priority_emoji
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"❌ Error creating task: {e}")
+            return self._error_response(f"Failed to create task: {str(e)}")
+
 
     async def _get_tasks(self, firebase_uid: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Get user tasks"""

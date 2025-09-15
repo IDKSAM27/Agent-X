@@ -20,7 +20,7 @@ class ProfessionInputScreen extends StatelessWidget {
       }, SetOptions(merge: true));
     }
 
-    // ✅ Instead of going to ChatScreen directly, go to HomeScreen
+    // Instead of going to ChatScreen directly, go to HomeScreen
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const HomeScreen()),
