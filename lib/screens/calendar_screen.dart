@@ -15,7 +15,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.month;
 
-  // Sample events data (I'll replace with database later)
+  // Sample events data (we'll replace with database later)
   final Map<DateTime, List<Map<String, dynamic>>> _events = {};
 
   @override
@@ -92,15 +92,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateEventDialog,
-        icon: const Icon(Icons.add),
-        label: const Text('New Event'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-      ).animate().scale(delay: 600.ms),
+      // FIX 1: Move FAB to avoid overlap with scrollable content
+      floatingActionButton: Container(
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).padding.bottom + 16,
+        ),
+        child: FloatingActionButton.extended(
+          onPressed: _showCreateEventDialog,
+          icon: const Icon(Icons.add),
+          label: const Text('New Event'),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: Column(
         children: [
-          // Calendar Widget
+          // Calendar Widget - PERFORMANCE FIX: Removed heavy animations from calendar
           Card(
             margin: AppConstants.paddingM,
             elevation: 0,
@@ -111,20 +118,27 @@ class _CalendarScreenState extends State<CalendarScreen> {
               calendarFormat: _calendarFormat,
               eventLoader: _getEventsForDay,
               selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+
+              // PERFORMANCE FIX: Optimize callbacks
               onDaySelected: (selectedDay, focusedDay) {
-                setState(() {
-                  _selectedDay = selectedDay;
-                  _focusedDay = focusedDay;
-                });
+                if (!isSameDay(_selectedDay, selectedDay)) {
+                  setState(() {
+                    _selectedDay = selectedDay;
+                    _focusedDay = focusedDay;
+                  });
+                }
               },
               onFormatChanged: (format) {
-                setState(() {
-                  _calendarFormat = format;
-                });
+                if (_calendarFormat != format) {
+                  setState(() {
+                    _calendarFormat = format;
+                  });
+                }
               },
               onPageChanged: (focusedDay) {
                 _focusedDay = focusedDay;
               },
+
               calendarStyle: CalendarStyle(
                 outsideDaysVisible: false,
                 weekendTextStyle: TextStyle(
@@ -138,18 +152,45 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   color: Theme.of(context).colorScheme.primary,
                   shape: BoxShape.circle,
                 ),
+                // FIX 2: Hide markers for selected day (like Google Calendar)
                 markerDecoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.secondary,
                   shape: BoxShape.circle,
                 ),
+                markersMaxCount: 1, // Limit markers for performance
               ),
               headerStyle: HeaderStyle(
                 titleCentered: true,
                 formatButtonVisible: false,
                 titleTextStyle: Theme.of(context).textTheme.titleLarge!,
               ),
+
+              // FIX 2: Custom marker builder to hide dots on selected day
+              calendarBuilders: CalendarBuilders(
+                markerBuilder: (context, day, events) {
+                  // Don't show markers on selected day (like Google Calendar)
+                  if (isSameDay(day, _selectedDay)) {
+                    return const SizedBox.shrink();
+                  }
+
+                  if (events.isNotEmpty) {
+                    return Positioned(
+                      bottom: 1,
+                      child: Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.secondary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
             ),
-          ).animate().slideY(begin: 0.2, duration: 500.ms),
+          ),
 
           // Selected Day Events
           Expanded(
@@ -202,7 +243,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
           child: eventsForDay.isEmpty
               ? _buildEmptyEventsView()
               : ListView.builder(
-            padding: AppConstants.paddingM,
+            // FIX 1: Add bottom padding to prevent FAB overlap
+            padding: EdgeInsets.only(
+              left: AppConstants.spacingM,
+              right: AppConstants.spacingM,
+              top: 0,
+              bottom: 100, // Extra space for FAB
+            ),
+            // PERFORMANCE FIX: Add physics for smoother scrolling
+            physics: const BouncingScrollPhysics(),
             itemCount: eventsForDay.length,
             itemBuilder: (context, index) {
               final event = eventsForDay[index];
@@ -246,12 +295,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ),
         ],
       ),
-    ).animate().fadeIn(delay: 300.ms);
+    );
   }
 
   Widget _buildEventCard(Map<String, dynamic> event, int index) {
     return Card(
       margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
+      // PERFORMANCE FIX: Remove heavy animations from list items
       child: ListTile(
         leading: Container(
           width: 12,
@@ -324,9 +374,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ),
         onTap: () => _showEventDetails(event),
       ),
-    ).animate(delay: (index * 100).ms).slideX(begin: 0.2).fadeIn();
+    );
   }
 
+  // Rest of the methods remain the same...
   void _showCreateEventDialog() {
     showDialog(
       context: context,
@@ -478,8 +529,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
         }
       }
     });
-
-    // TODO: Save to database via backend
   }
 
   void _handleEventAction(String action, Map<String, dynamic> event) {
