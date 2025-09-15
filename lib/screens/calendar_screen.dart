@@ -92,7 +92,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
-      // ✅ FIX 3: Handle keyboard overflow with resizeToAvoidBottomInset
+      // FIX 3: Handle keyboard overflow with resizeToAvoidBottomInset
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Calendar'),
@@ -118,7 +118,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ],
       ),
       // FAB positioned properly
-      floatingActionButton: Container(
+      floatingActionButton: AnimatedContainer(
+        duration: const Duration(milliseconds: 200), // Shorter animation
         margin: EdgeInsets.only(
           bottom: MediaQuery.of(context).padding.bottom + 16,
         ),
@@ -127,8 +128,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
           icon: const Icon(Icons.add),
           label: const Text('New Event'),
           backgroundColor: Theme.of(context).colorScheme.primary,
+          // Disable hero animation for better performance
+          heroTag: null,
         ),
       ),
+
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: Column(
         children: [
@@ -182,8 +186,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   color: Theme.of(context).colorScheme.secondary,
                   shape: BoxShape.circle,
                 ),
-                // ✅ FIX 1: Allow more markers to show multiple event dots
-                markersMaxCount: 3, // Show up to 3 dots for multiple events
+                // FIX 1: Allow more markers to show multiple event dots
+                markersMaxCount: 5, // Show up to 5 dots for multiple events
                 markerSize: 6.0,
                 markerMargin: const EdgeInsets.symmetric(horizontal: 0.5),
               ),
@@ -193,7 +197,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 titleTextStyle: Theme.of(context).textTheme.titleLarge!,
               ),
 
-              // ✅ FIX 1: Custom marker builder for multiple event indicators
+              // FIX 1: Custom marker builder for multiple event indicators
               calendarBuilders: CalendarBuilders(
                 markerBuilder: (context, day, events) {
                   // Don't show markers on selected day (like Google Calendar)
@@ -323,7 +327,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
-          // ✅ FIX 4: Remove duplicate create button - only keep the FAB
+          // FIX 4: Remove duplicate create button - only keep the FAB
         ],
       ),
     );
@@ -408,13 +412,133 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   void _showCreateEventDialog() {
-    showDialog(
+    // PERFORMANCE FIX: Use bottom sheet instead of dialog for smoother performance
+    showModalBottomSheet(
       context: context,
-      // ✅ FIX 2: Optimize dialog for better keyboard performance
-      barrierDismissible: true,
-      builder: (context) => _buildEventDialog(),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      // Enable smooth animations
+      enableDrag: true,
+      isDismissible: true,
+      builder: (context) => _buildCreateEventBottomSheet(),
     );
   }
+
+  Widget _buildCreateEventBottomSheet({Map<String, dynamic>? existingEvent}) {
+    final titleController = TextEditingController(
+      text: existingEvent?['title'] ?? '',
+    );
+    final timeController = TextEditingController(
+      text: existingEvent?['time'] ?? '10:00 AM',
+    );
+
+    return Container(
+      // PERFORMANCE FIX: Proper keyboard handling without overflow
+      padding: EdgeInsets.only(
+        left: 24,
+        right: 24,
+        top: 24,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(AppConstants.radiusL),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle bar
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppConstants.spacingL),
+
+          // Title
+          Text(
+            existingEvent == null ? 'Create Event' : 'Edit Event',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AppConstants.spacingL),
+
+          // PERFORMANCE FIX: Simplified text fields
+          TextFormField(
+            controller: titleController,
+            decoration: InputDecoration(
+              labelText: 'Event Title',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppConstants.radiusM),
+              ),
+              prefixIcon: const Icon(Icons.event),
+            ),
+            textCapitalization: TextCapitalization.words,
+          ),
+          const SizedBox(height: AppConstants.spacingM),
+
+          TextFormField(
+            controller: timeController,
+            decoration: InputDecoration(
+              labelText: 'Time',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppConstants.radiusM),
+              ),
+              prefixIcon: const Icon(Icons.access_time),
+            ),
+            onTap: () => _showTimePicker(context, timeController),
+            readOnly: true,
+          ),
+          const SizedBox(height: AppConstants.spacingL),
+
+          // Action Buttons
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: AppConstants.spacingM),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () {
+                    if (titleController.text.isNotEmpty) {
+                      _saveEvent(
+                        titleController.text,
+                        timeController.text,
+                        existingEvent,
+                      );
+                      Navigator.pop(context);
+                    }
+                  },
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: Text(existingEvent == null ? 'Create' : 'Save'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+
 
   Widget _buildEventDialog({Map<String, dynamic>? existingEvent}) {
     final titleController = TextEditingController(
@@ -425,7 +549,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
 
     return Dialog(
-      // ✅ FIX 2 & 3: Better dialog configuration for keyboard handling
+      // FIX 2 & 3: Better dialog configuration for keyboard handling
       insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -444,7 +568,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             // Event Title Field
             TextField(
               controller: titleController,
-              autofocus: false, // ✅ FIX 2: Don't auto-focus to reduce keyboard lag
+              autofocus: false, // FIX 2: Don't auto-focus to reduce keyboard lag
               decoration: const InputDecoration(
                 labelText: 'Event Title',
                 border: OutlineInputBorder(),
@@ -592,9 +716,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void _handleEventAction(String action, Map<String, dynamic> event) {
     switch (action) {
       case 'edit':
-        showDialog(
+      // Use the same optimized bottom sheet for editing
+        showModalBottomSheet(
           context: context,
-          builder: (context) => _buildEventDialog(existingEvent: event),
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          enableDrag: true,
+          builder: (context) => _buildCreateEventBottomSheet(existingEvent: event),
         );
         break;
       case 'delete':
@@ -602,6 +730,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         break;
     }
   }
+
 
   void _deleteEvent(Map<String, dynamic> event) {
     showDialog(
@@ -678,5 +807,29 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ),
       ),
     );
+  }
+  void _showTimePicker(BuildContext context, TextEditingController controller) async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            // Optimize time picker theme for performance
+            timePickerTheme: TimePickerThemeData(
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              hourMinuteTextColor: Theme.of(context).colorScheme.onSurface,
+              dayPeriodTextColor: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      final formattedTime = picked.format(context);
+      controller.text = formattedTime;
+    }
   }
 }

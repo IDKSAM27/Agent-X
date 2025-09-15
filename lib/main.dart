@@ -13,9 +13,9 @@ void main() async {
 
 
   // Performance optimizations
-  if (!kDebugMode) {
-    // Enable hardware acceleration
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  if (kDebugMode) {
+    // Reduce animation scale for testing
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   // Set system UI overlay style

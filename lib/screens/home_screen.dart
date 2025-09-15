@@ -12,6 +12,7 @@ import '../core/constants/app_constants.dart';
 import 'chat_screen.dart';
 import 'clock_screen.dart';
 import 'calendar_screen.dart';
+import 'tasks_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -358,18 +359,18 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: AppConstants.spacingM),
             Expanded(
               child: QuickActionTile(
-                label: 'Clock',
-                icon: Icons.access_time,
-                onTap: () => _navigateToClock(),
+                label: 'Tasks', // Changed from Clock to Tasks
+                icon: Icons.task_alt, // Changed icon
+                onTap: () => _navigateToTasks(), // New navigation
                 color: Theme.of(context).colorScheme.secondary,
               ),
             ),
             const SizedBox(width: AppConstants.spacingM),
             Expanded(
               child: QuickActionTile(
-                label: 'Settings',
-                icon: Icons.settings,
-                onTap: _showSettingsModal,
+                label: 'Clock', // Moved clock here, or remove entirely
+                icon: Icons.access_time,
+                onTap: () => _navigateToClock(),
                 color: Theme.of(context).colorScheme.tertiary,
               ),
             ),
@@ -468,6 +469,25 @@ class _HomeScreenState extends State<HomeScreen> {
         pageBuilder: (context, animation, secondaryAnimation) => const CalendarScreen(),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(opacity: animation, child: child);
+        },
+        transitionDuration: AppConstants.normalAnimation,
+      ),
+    );
+  }
+
+  void _navigateToTasks() {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const TasksScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: animation.drive(
+              Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
+                  .chain(CurveTween(curve: Curves.easeInOutCubic)),
+            ),
+            child: child,
+          );
         },
         transitionDuration: AppConstants.normalAnimation,
       ),
