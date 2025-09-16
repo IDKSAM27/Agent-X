@@ -1011,6 +1011,35 @@ async def get_tasks(current_user: dict = Depends(get_current_user)):
             "error": str(e)
         }
 
+@app.get("/api/events")
+async def get_events(current_user: dict = Depends(get_current_user)):
+    """Get user's calendar events"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        events = get_all_events(firebase_uid)
+
+        # Format for frontend
+        formatted_events = []
+        for event in events:
+            event_id, title, description, start_time, end_time, category, priority, location, created_at = event
+            formatted_events.append({
+                "id": event_id,
+                "title": title,
+                "description": description,
+                "start_time": start_time,
+                "end_time": end_time,
+                "category": category,
+                "priority": priority,
+                "location": location,
+                "created_at": created_at,
+            })
+
+        logger.info(f"📅 API: Retrieved {len(formatted_events)} events for {firebase_uid}")
+        return {"success": True, "events": formatted_events, "count": len(formatted_events)}
+
+    except Exception as e:
+        logger.error(f"❌ Error getting events via API: {e}")
+        return {"success": False, "events": [], "count": 0, "error": str(e)}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
