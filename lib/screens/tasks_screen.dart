@@ -739,18 +739,42 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   }
 
   // Task Actions
-  void _toggleTaskCompletion(TaskItem task) {
+  void _toggleTaskCompletion(TaskItem task) async {
+    final newStatus = !task.isCompleted;
+
+    // Optimistically update UI
     setState(() {
       final index = _tasks.indexWhere((t) => t.id == task.id);
-      if (index != -1) {
+      if (index >= 0) {
         _tasks[index] = task.copyWith(
-          isCompleted: !task.isCompleted,
-          progress: !task.isCompleted ? 1.0 : task.progress,
+          isCompleted: newStatus,
+          progress: newStatus ? 1.0 : 0.0,
         );
       }
     });
-    // TODO: Update in database via backend
+
+    try {
+      final token = await _getFirebaseToken();
+      final response = await _dio.post(
+        '/api/tasks/${task.id}/complete',
+        data: {'completed': newStatus},
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+      if (response.data['success'] == false) {
+        throw Exception('Failed to update');
+      }
+    } catch (e) {
+      // Roll back UI update on failure
+      setState(() {
+        final index = _tasks.indexWhere((t) => t.id == task.id);
+        if (index >= 0) {
+          _tasks[index] = task;
+        }
+      });
+      // Show error toast/snackbar if you want
+    }
   }
+
 
   void _handleTaskAction(String action, TaskItem task) {
     switch (action) {

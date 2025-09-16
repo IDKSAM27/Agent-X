@@ -751,6 +751,23 @@ def build_context_string(conversations):
 
     return "\n".join(context_parts) + "\n\n"
 
+def update_task_completion_in_db(firebase_uid: str, task_id: int, completed: bool) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE tasks SET is_completed = ?, updated_at = ? WHERE id = ? AND firebase_uid = ?",
+            (1 if completed else 0, datetime.now().isoformat(), task_id, firebase_uid)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Failed to update task completion: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
 @app.get("/debug/names")
 async def debug_names():
     try:
@@ -1040,6 +1057,19 @@ async def get_events(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         logger.error(f"❌ Error getting events via API: {e}")
         return {"success": False, "events": [], "count": 0, "error": str(e)}
+
+@app.post("/api/tasks/{task_id}/complete")
+async def update_task_completion(task_id: int, completed: bool, current_user: dict = Depends(get_current_user)):
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        success = update_task_completion_in_db(firebase_uid, task_id, completed)
+        if success:
+            return {"success": True, "message": "Task updated successfully."}
+        else:
+            return {"success": False, "message": "Failed to update task."}
+    except Exception as e:
+        logger.error(f"Error updating task completion: {e}")
+        return {"success": False, "message": str(e)}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
