@@ -198,29 +198,31 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateTaskBottomSheet,
-        icon: const Icon(Icons.add_task),
-        label: const Text('New Task'),
-        backgroundColor: Theme
-            .of(context)
-            .colorScheme
-            .primary,
-      ).animate().scale(delay: 600.ms),
-      body: Column(
-        children: [
-          // Stats Card
-          _buildStatsCard().animate().slideY(begin: -0.2, duration: 400.ms),
-
-          // Category Filter
-          _buildCategoryFilter().animate().slideX(
-              begin: -0.2, duration: 500.ms),
-
-          // Tasks List
-          Expanded(
-            child: _buildTasksList(),
-          ),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _loadTasksFromBackend,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          children: [
+            _buildStatsCard().animate().slideY(begin: -0.2, duration: 400.ms),
+            _buildCategoryFilter().animate().slideX(begin: -0.2, duration: 500.ms),
+            // Instead of Expanded, just insert the widgets
+            SizedBox(
+              height: 16,
+            ),
+            ..._filteredTasks.isEmpty
+                ? [_buildEmptyState()]
+                : _filteredTasks
+                .asMap()
+                .entries
+                .map((entry) =>
+                _buildTaskCard(entry.value, entry.key))
+                .toList(),
+            SizedBox(
+              height: 100, // Padding for FAB
+            ),
+          ],
+        ),
       ),
     );
   }
