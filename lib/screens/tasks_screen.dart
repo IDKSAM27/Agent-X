@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
+import '../core/config/api_config.dart';
 import '../models/task_item.dart';
 import '../core/constants/app_constants.dart';
 
@@ -14,6 +18,12 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   List<TaskItem> _tasks = [];
   String _selectedFilter = 'all'; // all, pending, completed
   late TabController _tabController;
+
+  final Dio _dio = Dio(BaseOptions(
+    baseUrl: ApiConfig.baseUrl,
+    connectTimeout: const Duration(seconds: 30),
+    receiveTimeout: const Duration(seconds: 30),
+  ));
 
   final List<String> _categories = ['All', 'Work', 'Personal', 'Urgent'];
   String _selectedCategory = 'All';
@@ -32,7 +42,67 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   }
 
   void _loadSampleTasks() {
-    // Sample tasks with different priorities and categories
+    _loadTasksFromBackend();
+  }
+
+  Future<void> _loadTasksFromBackend() async {
+    try {
+      // Call your backend to get tasks
+      final response = await _dio.get(
+        '/api/tasks',
+        options: Options(
+          headers: {
+            ...ApiConfig.defaultHeaders,
+            'Authorization': 'Bearer ${await _getFirebaseToken()}',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> tasksJson = response.data['tasks'] ?? [];
+
+        setState(() {
+          _tasks = tasksJson.map((taskData) {
+            return TaskItem(
+              id: taskData['id'].toString(),
+              title: taskData['title'] ?? '',
+              description: taskData['description'] ?? '',
+              priority: taskData['priority'] ?? 'medium',
+              category: taskData['category'] ?? 'general',
+              dueDate: taskData['due_date'] != null
+                  ? DateTime.parse(taskData['due_date'])
+                  : null,
+              isCompleted: (taskData['is_completed'] ?? 0) == 1,
+              progress: (taskData['progress'] ?? 0.0).toDouble(),
+              tags: taskData['tags'] != null
+                  ? List<String>.from(json.decode(taskData['tags']))
+                  : [],
+            );
+          }).toList();
+        });
+
+        print('✅ Loaded ${_tasks.length} tasks from backend');
+      }
+    } catch (e) {
+      print('❌ Error loading tasks: $e');
+      // Keep the sample tasks as fallback
+      _loadSampleTasksFallback();
+    }
+  }
+
+  Future<String?> _getFirebaseToken() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      return await user?.getIdToken();
+    } catch (e) {
+      print('❌ Error getting Firebase token: $e');
+      return null;
+    }
+  }
+
+// Keep sample tasks as fallback
+  void _loadSampleTasksFallback() {
+    // Your existing hardcoded tasks code as fallback
     setState(() {
       _tasks = [
         TaskItem(
@@ -45,46 +115,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           progress: 0.7,
           tags: ['presentation', 'quarterly'],
         ),
-        TaskItem(
-          id: '2',
-          title: 'Grocery shopping',
-          description: 'Buy essentials for the week',
-          priority: 'low',
-          category: 'personal',
-          dueDate: DateTime.now().add(const Duration(days: 1)),
-          progress: 0.0,
-          tags: ['shopping', 'weekly'],
-        ),
-        TaskItem(
-          id: '3',
-          title: 'Review code submissions',
-          description: 'Check and approve team code',
-          priority: 'medium',
-          category: 'work',
-          dueDate: DateTime.now().add(const Duration(hours: 6)),
-          progress: 0.3,
-          tags: ['code', 'review'],
-        ),
-        TaskItem(
-          id: '4',
-          title: 'Gym workout',
-          description: 'Evening cardio session',
-          priority: 'medium',
-          category: 'personal',
-          isCompleted: true,
-          progress: 1.0,
-          tags: ['fitness', 'health'],
-        ),
-        TaskItem(
-          id: '5',
-          title: 'Fix critical bug',
-          description: 'Database connection issue',
-          priority: 'high',
-          category: 'urgent',
-          dueDate: DateTime.now().add(const Duration(hours: 3)),
-          progress: 0.1,
-          tags: ['bug', 'critical'],
-        ),
+        // ... other sample tasks
       ];
     });
   }

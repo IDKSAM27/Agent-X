@@ -967,5 +967,50 @@ async def debug_conversations(firebase_uid: str):
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/tasks")
+async def get_tasks(current_user: dict = Depends(get_current_user)):
+    """Get user's tasks"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+
+        # Get tasks from database
+        tasks = get_user_tasks(firebase_uid, status="all")
+
+        # Format tasks for frontend
+        formatted_tasks = []
+        for task in tasks:
+            task_id, title, description, priority, category, due_date, is_completed, progress, created_at = task
+
+            formatted_tasks.append({
+                "id": task_id,
+                "title": title,
+                "description": description,
+                "priority": priority,
+                "category": category,
+                "due_date": due_date,
+                "is_completed": is_completed,
+                "progress": progress,
+                "tags": "[]",  # Default empty tags
+                "created_at": created_at
+            })
+
+        logger.info(f"📋 API: Retrieved {len(formatted_tasks)} tasks for {firebase_uid}")
+
+        return {
+            "success": True,
+            "tasks": formatted_tasks,
+            "count": len(formatted_tasks)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error getting tasks via API: {e}")
+        return {
+            "success": False,
+            "tasks": [],
+            "count": 0,
+            "error": str(e)
+        }
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
