@@ -142,85 +142,46 @@ Be conversational and helpful. Reference their profession when relevant."""
     async def _generate_natural_response(self, function_results: List[Dict], original_messages: List[Dict]) -> str:
         """Generate a natural response based on function execution results"""
 
-        # Build a detailed summary of what was executed
-        results_summary = []
+        successful_messages = []
+        error_messages = []
 
+        # Extract the actual messages from successful function calls
         for func_result in function_results:
             function_name = func_result["function"]
             result_data = func_result["result"]
 
             if result_data.get("success", False):
-                if function_name == "create_task":
-                    task_data = result_data.get("data", {})
-                    results_summary.append(f"Created task: '{task_data.get('title', 'Unnamed Task')}' with {task_data.get('priority', 'medium')} priority")
-
-                elif function_name == "get_tasks":
-                    tasks = result_data.get("data", {}).get("tasks", [])
-                    if tasks:
-                        task_list = []
-                        for i, task in enumerate(tasks, 1):
-                            priority_emoji = "🔥" if task.get("priority") == "high" else "⚡" if task.get("priority") == "medium" else "📝"
-                            task_list.append(f"{i}. {priority_emoji} {task.get('title', 'Unnamed Task')}")
-                        results_summary.append(f"Your tasks:\n" + "\n".join(task_list))
-                    else:
-                        results_summary.append("You don't have any tasks yet.")
-
-                elif function_name == "create_event":
-                    event_data = result_data.get("data", {})
-                    results_summary.append(f"Scheduled event: '{event_data.get('title', 'Unnamed Event')}' on {event_data.get('date')} at {event_data.get('time')}")
-
-                elif function_name == "get_events":
-                    events = result_data.get("data", {}).get("events", [])
-                    if events:
-                        event_list = []
-                        for i, event in enumerate(events, 1):
-                            event_list.append(f"{i}. 📅 {event.get('title', 'Unnamed Event')} at {event.get('datetime')}")
-                        results_summary.append(f"Your upcoming events:\n" + "\n".join(event_list))
-                    else:
-                        results_summary.append("You don't have any scheduled events yet.")
-
-                elif function_name == "save_user_info":
-                    user_data = result_data.get("data", {})
-                    results_summary.append(f"Saved your name as {user_data.get('name', 'Unknown')}")
-
-                elif function_name == "get_user_info":
-                    user_data = result_data.get("data", {})
-                    user_name = user_data.get("name")
-                    if user_name:
-                        results_summary.append(f"Your name is {user_name}")
-                    else:
-                        results_summary.append("I don't have your name saved yet")
-
+                # Use the actual message from the function, not a generic one
+                function_message = result_data.get("message", "")
+                if function_message:
+                    successful_messages.append(function_message)
+                else:
+                    # Fallback for functions without messages
+                    successful_messages.append(f"✅ {function_name} completed successfully")
             else:
                 # Handle errors
                 error_msg = result_data.get("error", "Unknown error occurred")
-                results_summary.append(f"Error with {function_name}: {error_msg}")
+                error_messages.append(f"❌ Error with {function_name}: {error_msg}")
 
-        # Create a natural prompt for the LLM to generate a conversational response
-        if results_summary:
-            results_text = "\n".join(results_summary)
+        # Combine all messages
+        all_messages = successful_messages + error_messages
 
-            # For simple single-function responses, return directly
-            if len(function_results) == 1 and function_results[0]["function"] == "get_user_info":
-                return results_text
+        if not all_messages:
+            return "I completed the requested action."
 
-            # Use LLM to generate a natural, conversational response for complex cases
-            natural_prompt = f"""Based on the following actions that were just completed:
-    
-    {results_text}
-    
-    Please provide a helpful, conversational response to the user. Be natural and friendly, and summarize what was accomplished. If showing lists of tasks or events, format them nicely with emojis and clear structure."""
+        if len(all_messages) == 1:
+            # Single function - return the message directly
+            return all_messages[0]
 
-            try:
-                natural_response = await self.primary_llm.simple_chat(natural_prompt)
-                logger.info(f"✅ Generated natural response: {natural_response[:100]}...")
-                return natural_response
-            except Exception as e:
-                logger.error(f"❌ Failed to generate natural response: {e}")
-                # Fallback to the results summary
-                return results_text
+        # Multiple functions - combine messages nicely
+        combined_message = "\n\n".join(all_messages)
 
-        return "I completed the requested action."
+        # For multiple successful actions, add a brief intro
+        if len(successful_messages) > 1 and not error_messages:
+            return f"I've completed multiple actions for you:\n\n{combined_message}"
+
+        return combined_message
+
 
 
     def _generate_suggestions(self, message: str) -> List[str]:
