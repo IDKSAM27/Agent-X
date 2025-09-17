@@ -285,3 +285,72 @@ def get_all_conversations(firebase_uid: str):
     conversations = cursor.fetchall()
     conn.close()
     return conversations
+
+def update_task_completion_in_db(firebase_uid: str, task_id: int, completed: bool) -> bool:
+    """Update task completion status in database"""
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    try:
+        cursor = conn.cursor()
+
+        now = datetime.now().isoformat()
+        progress = 1.0 if completed else 0.0
+
+        cursor.execute('''
+            UPDATE tasks 
+            SET is_completed = ?, progress = ?, updated_at = ? 
+            WHERE id = ? AND firebase_uid = ?
+        ''', (1 if completed else 0, progress, now, task_id, firebase_uid))
+
+        conn.commit()
+        success = cursor.rowcount > 0
+
+        if success:
+            logger.info(f"✅ Updated task {task_id} completion: {completed}")
+        else:
+            logger.warning(f"⚠️ No task found with id {task_id} for user {firebase_uid}")
+
+        return success
+
+    except Exception as e:
+        logger.error(f"❌ Error updating task completion in DB: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def update_task_in_db(firebase_uid: str, task_id: int, title: str, description: str, priority: str, category: str, due_date: str = None) -> bool:
+    """Update task in database"""
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    try:
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+
+        cursor.execute('''
+            UPDATE tasks 
+            SET title = ?, description = ?, priority = ?, category = ?, due_date = ?, updated_at = ?
+            WHERE id = ? AND firebase_uid = ?
+        ''', (title, description, priority, category, due_date, now, task_id, firebase_uid))
+
+        conn.commit()
+        return cursor.rowcount > 0
+
+    except Exception as e:
+        logger.error(f"❌ Error updating task in DB: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def delete_task_from_db(firebase_uid: str, task_id: int) -> bool:
+    """Delete task from database"""
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM tasks WHERE id = ? AND firebase_uid = ?', (task_id, firebase_uid))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"❌ Error deleting task: {e}")
+        return False
+    finally:
+        conn.close()
