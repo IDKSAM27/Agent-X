@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../core/constants/app_constants.dart';
+import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../core/config/api_config.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -15,6 +17,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.month;
 
+  final Dio _dio = Dio(BaseOptions(
+    baseUrl: ApiConfig.baseUrl,
+    connectTimeout: const Duration(seconds: 30),
+    receiveTimeout: const Duration(seconds: 30),
+  ));
+
+
   // Sample events data (we'll replace with database later)
   final Map<DateTime, List<Map<String, dynamic>>> _events = {};
 
@@ -22,9 +31,51 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void initState() {
     super.initState();
     _selectedDay = DateTime.now();
-    _loadSampleEvents();
+    // _loadSampleEvents();
+    _loadEventsFromBackend();
   }
 
+  Future<String?> _getFirebaseToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    return await user?.getIdToken();
+  }
+
+  Future<void> _loadEventsFromBackend() async {
+    try {
+      final token = await _getFirebaseToken();
+      final response = await _dio.get(
+        '/api/events',
+        options: Options(
+          headers: {
+            ...ApiConfig.defaultHeaders,
+            'Authorization': 'Bearer $token',
+          },
+        ),
+      );
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        final List<dynamic> eventsJson = response.data['events'] ?? [];
+        setState(() {
+          _events.clear();
+          for (final e in eventsJson) {
+            final date = DateTime.parse(e['start_time']);
+            final normalized = DateTime(date.year, date.month, date.day);
+            final eventMap = {
+              'title': e['title'],
+              'description': e['description'],
+              'time': e['start_time']!.split(' ').last,
+              'type': e['category'] ?? 'general',
+              'color': Colors.blue, // map category to color if you want
+            };
+            _events[normalized] = (_events[normalized] ?? [])..add(eventMap);
+          }
+        });
+      }
+    } catch (e) {
+      print('❌ Error loading events: $e');
+    }
+  }
+
+  //TODO:remove this once the real stuff starts working
   void _loadSampleEvents() {
     // Sample events for demo - including multiple events on same day
     final tomorrow = DateTime.now().add(const Duration(days: 1));
@@ -134,110 +185,114 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
 
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      body: Column(
-        children: [
-          // Calendar Widget
-          Card(
-            margin: AppConstants.paddingM,
-            elevation: 0,
-            child: TableCalendar<Map<String, dynamic>>(
-              firstDay: DateTime.utc(2020, 1, 1),
-              lastDay: DateTime.utc(2030, 12, 31),
-              focusedDay: _focusedDay,
-              calendarFormat: _calendarFormat,
-              eventLoader: _getEventsForDay,
-              selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+      body: RefreshIndicator(
+        onRefresh: _loadEventsFromBackend,
+        child: ListView(
+          children: [
+            // Calendar Widget
+            Card(
+              margin: AppConstants.paddingM,
+              elevation: 0,
+              child: TableCalendar<Map<String, dynamic>>(
+                firstDay: DateTime.utc(2020, 1, 1),
+                lastDay: DateTime.utc(2030, 12, 31),
+                focusedDay: _focusedDay,
+                calendarFormat: _calendarFormat,
+                eventLoader: _getEventsForDay,
+                selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
 
-              // Optimize callbacks
-              onDaySelected: (selectedDay, focusedDay) {
-                if (!isSameDay(_selectedDay, selectedDay)) {
-                  setState(() {
-                    _selectedDay = selectedDay;
-                    _focusedDay = focusedDay;
-                  });
-                }
-              },
-              onFormatChanged: (format) {
-                if (_calendarFormat != format) {
-                  setState(() {
-                    _calendarFormat = format;
-                  });
-                }
-              },
-              onPageChanged: (focusedDay) {
-                _focusedDay = focusedDay;
-              },
-
-              calendarStyle: CalendarStyle(
-                outsideDaysVisible: false,
-                weekendTextStyle: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                todayDecoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  shape: BoxShape.circle,
-                ),
-                selectedDecoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  shape: BoxShape.circle,
-                ),
-                // Basic marker decoration
-                markerDecoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.secondary,
-                  shape: BoxShape.circle,
-                ),
-                // FIX 1: Allow more markers to show multiple event dots
-                markersMaxCount: 5, // Show up to 5 dots for multiple events
-                markerSize: 6.0,
-                markerMargin: const EdgeInsets.symmetric(horizontal: 0.5),
-              ),
-              headerStyle: HeaderStyle(
-                titleCentered: true,
-                formatButtonVisible: false,
-                titleTextStyle: Theme.of(context).textTheme.titleLarge!,
-              ),
-
-              // FIX 1: Custom marker builder for multiple event indicators
-              calendarBuilders: CalendarBuilders(
-                markerBuilder: (context, day, events) {
-                  // Don't show markers on selected day (like Google Calendar)
-                  if (isSameDay(day, _selectedDay)) {
-                    return const SizedBox.shrink();
+                // Optimize callbacks
+                onDaySelected: (selectedDay, focusedDay) {
+                  if (!isSameDay(_selectedDay, selectedDay)) {
+                    setState(() {
+                      _selectedDay = selectedDay;
+                      _focusedDay = focusedDay;
+                    });
                   }
+                },
+                onFormatChanged: (format) {
+                  if (_calendarFormat != format) {
+                    setState(() {
+                      _calendarFormat = format;
+                    });
+                  }
+                },
+                onPageChanged: (focusedDay) {
+                  _focusedDay = focusedDay;
+                },
 
-                  if (events.isNotEmpty) {
-                    return Positioned(
-                      bottom: 1,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: List.generate(
-                          events.length > 3 ? 3 : events.length, // Max 3 dots
-                              (index) => Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 0.5),
-                            width: 5,
-                            height: 5,
-                            decoration: BoxDecoration(
-                              color: events.length > 3 && index == 2
-                                  ? Theme.of(context).colorScheme.primary // Different color for "more" indicator
-                                  : Theme.of(context).colorScheme.secondary,
-                              shape: BoxShape.circle,
+                calendarStyle: CalendarStyle(
+                  outsideDaysVisible: false,
+                  weekendTextStyle: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  todayDecoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  selectedDecoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  // Basic marker decoration
+                  markerDecoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.secondary,
+                    shape: BoxShape.circle,
+                  ),
+                  // FIX 1: Allow more markers to show multiple event dots
+                  markersMaxCount: 5, // Show up to 5 dots for multiple events
+                  markerSize: 6.0,
+                  markerMargin: const EdgeInsets.symmetric(horizontal: 0.5),
+                ),
+                headerStyle: HeaderStyle(
+                  titleCentered: true,
+                  formatButtonVisible: false,
+                  titleTextStyle: Theme.of(context).textTheme.titleLarge!,
+                ),
+
+                // FIX 1: Custom marker builder for multiple event indicators
+                calendarBuilders: CalendarBuilders(
+                  markerBuilder: (context, day, events) {
+                    // Don't show markers on selected day (like Google Calendar)
+                    if (isSameDay(day, _selectedDay)) {
+                      return const SizedBox.shrink();
+                    }
+
+                    if (events.isNotEmpty) {
+                      return Positioned(
+                        bottom: 1,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: List.generate(
+                            events.length > 3 ? 3 : events.length, // Max 3 dots
+                                (index) => Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 0.5),
+                              width: 5,
+                              height: 5,
+                              decoration: BoxDecoration(
+                                color: events.length > 3 && index == 2
+                                    ? Theme.of(context).colorScheme.primary // Different color for "more" indicator
+                                    : Theme.of(context).colorScheme.secondary,
+                                shape: BoxShape.circle,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    );
-                  }
-                  return const SizedBox.shrink();
-                },
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
               ),
             ),
-          ),
 
-          // Selected Day Events
-          Expanded(
-            child: _buildSelectedDayEvents(),
-          ),
-        ],
+            // Selected Day Events
+            SizedBox(
+              height: 400,
+              child: _buildSelectedDayEvents(),
+            ),
+          ],
+        )
       ),
     );
   }

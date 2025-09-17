@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
+import '../core/config/api_config.dart';
 import '../models/task_item.dart';
 import '../core/constants/app_constants.dart';
 
@@ -14,6 +18,12 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   List<TaskItem> _tasks = [];
   String _selectedFilter = 'all'; // all, pending, completed
   late TabController _tabController;
+
+  final Dio _dio = Dio(BaseOptions(
+    baseUrl: ApiConfig.baseUrl,
+    connectTimeout: const Duration(seconds: 30),
+    receiveTimeout: const Duration(seconds: 30),
+  ));
 
   final List<String> _categories = ['All', 'Work', 'Personal', 'Urgent'];
   String _selectedCategory = 'All';
@@ -32,7 +42,67 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   }
 
   void _loadSampleTasks() {
-    // Sample tasks with different priorities and categories
+    _loadTasksFromBackend();
+  }
+
+  Future<void> _loadTasksFromBackend() async {
+    try {
+      // Call your backend to get tasks
+      final response = await _dio.get(
+        '/api/tasks',
+        options: Options(
+          headers: {
+            ...ApiConfig.defaultHeaders,
+            'Authorization': 'Bearer ${await _getFirebaseToken()}',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> tasksJson = response.data['tasks'] ?? [];
+
+        setState(() {
+          _tasks = tasksJson.map((taskData) {
+            return TaskItem(
+              id: taskData['id'].toString(),
+              title: taskData['title'] ?? '',
+              description: taskData['description'] ?? '',
+              priority: taskData['priority'] ?? 'medium',
+              category: taskData['category'] ?? 'general',
+              dueDate: taskData['due_date'] != null
+                  ? DateTime.parse(taskData['due_date'])
+                  : null,
+              isCompleted: (taskData['is_completed'] ?? 0) == 1,
+              progress: (taskData['progress'] ?? 0.0).toDouble(),
+              tags: taskData['tags'] != null
+                  ? List<String>.from(json.decode(taskData['tags']))
+                  : [],
+            );
+          }).toList();
+        });
+
+        print('✅ Loaded ${_tasks.length} tasks from backend');
+      }
+    } catch (e) {
+      print('❌ Error loading tasks: $e');
+      // Keep the sample tasks as fallback
+      _loadSampleTasksFallback();
+    }
+  }
+
+  Future<String?> _getFirebaseToken() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      return await user?.getIdToken();
+    } catch (e) {
+      print('❌ Error getting Firebase token: $e');
+      return null;
+    }
+  }
+
+// Keep sample tasks as fallback
+  void _loadSampleTasksFallback() {
+    // Your existing hardcoded tasks code as fallback
     setState(() {
       _tasks = [
         TaskItem(
@@ -45,46 +115,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           progress: 0.7,
           tags: ['presentation', 'quarterly'],
         ),
-        TaskItem(
-          id: '2',
-          title: 'Grocery shopping',
-          description: 'Buy essentials for the week',
-          priority: 'low',
-          category: 'personal',
-          dueDate: DateTime.now().add(const Duration(days: 1)),
-          progress: 0.0,
-          tags: ['shopping', 'weekly'],
-        ),
-        TaskItem(
-          id: '3',
-          title: 'Review code submissions',
-          description: 'Check and approve team code',
-          priority: 'medium',
-          category: 'work',
-          dueDate: DateTime.now().add(const Duration(hours: 6)),
-          progress: 0.3,
-          tags: ['code', 'review'],
-        ),
-        TaskItem(
-          id: '4',
-          title: 'Gym workout',
-          description: 'Evening cardio session',
-          priority: 'medium',
-          category: 'personal',
-          isCompleted: true,
-          progress: 1.0,
-          tags: ['fitness', 'health'],
-        ),
-        TaskItem(
-          id: '5',
-          title: 'Fix critical bug',
-          description: 'Database connection issue',
-          priority: 'high',
-          category: 'urgent',
-          dueDate: DateTime.now().add(const Duration(hours: 3)),
-          progress: 0.1,
-          tags: ['bug', 'critical'],
-        ),
+        // ... other sample tasks
       ];
     });
   }
@@ -167,29 +198,31 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showCreateTaskBottomSheet,
-        icon: const Icon(Icons.add_task),
-        label: const Text('New Task'),
-        backgroundColor: Theme
-            .of(context)
-            .colorScheme
-            .primary,
-      ).animate().scale(delay: 600.ms),
-      body: Column(
-        children: [
-          // Stats Card
-          _buildStatsCard().animate().slideY(begin: -0.2, duration: 400.ms),
-
-          // Category Filter
-          _buildCategoryFilter().animate().slideX(
-              begin: -0.2, duration: 500.ms),
-
-          // Tasks List
-          Expanded(
-            child: _buildTasksList(),
-          ),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _loadTasksFromBackend,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
+          children: [
+            _buildStatsCard().animate().slideY(begin: -0.2, duration: 400.ms),
+            _buildCategoryFilter().animate().slideX(begin: -0.2, duration: 500.ms),
+            // Instead of Expanded, just insert the widgets
+            SizedBox(
+              height: 16,
+            ),
+            ..._filteredTasks.isEmpty
+                ? [_buildEmptyState()]
+                : _filteredTasks
+                .asMap()
+                .entries
+                .map((entry) =>
+                _buildTaskCard(entry.value, entry.key))
+                .toList(),
+            SizedBox(
+              height: 100, // Padding for FAB
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -706,18 +739,61 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   }
 
   // Task Actions
-  void _toggleTaskCompletion(TaskItem task) {
+  void _toggleTaskCompletion(TaskItem task) async {
+    final newStatus = !task.isCompleted;
+
+    // Optimistically update UI
     setState(() {
       final index = _tasks.indexWhere((t) => t.id == task.id);
-      if (index != -1) {
+      if (index >= 0) {
         _tasks[index] = task.copyWith(
-          isCompleted: !task.isCompleted,
-          progress: !task.isCompleted ? 1.0 : task.progress,
+          isCompleted: newStatus,
+          progress: newStatus ? 1.0 : 0.0,
         );
       }
     });
-    // TODO: Update in database via backend
+
+    try {
+      final token = await _getFirebaseToken();
+      final response = await _dio.post(
+        '/api/tasks/${task.id}/complete',
+        data: {'completed': newStatus}, // Send as JSON body
+        options: Options(
+            headers: {
+              ...ApiConfig.defaultHeaders,
+              'Authorization': 'Bearer $token'
+            }
+        ),
+      );
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        print('✅ Task completion updated successfully');
+      } else {
+        throw Exception('Backend returned error');
+      }
+
+    } catch (e) {
+      print('❌ Error updating task: $e');
+
+      // Roll back UI update on failure
+      setState(() {
+        final index = _tasks.indexWhere((t) => t.id == task.id);
+        if (index >= 0) {
+          _tasks[index] = task; // Revert to original state
+        }
+      });
+
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update task: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
+
+
 
   void _handleTaskAction(String action, TaskItem task) {
     switch (action) {
@@ -730,37 +806,22 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     }
   }
 
-  void _deleteTask(TaskItem task) {
-    showDialog(
-      context: context,
-      builder: (context) =>
-          AlertDialog(
-            title: const Text('Delete Task'),
-            content: Text('Delete "${task.title}"?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _tasks.removeWhere((t) => t.id == task.id);
-                  });
-                  Navigator.pop(context);
-                  // TODO: Delete from database
-                },
-                style: TextButton.styleFrom(
-                  foregroundColor: Theme
-                      .of(context)
-                      .colorScheme
-                      .error,
-                ),
-                child: const Text('Delete'),
-              ),
-            ],
-          ),
-    );
+  void _deleteTask(TaskItem task) async {
+    try {
+      final token = await _getFirebaseToken();
+      final response = await _dio.delete(
+        '/api/tasks/${task.id}',
+        options: Options(headers: {'Authorization': 'Bearer $token'}),
+      );
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        setState(() {
+          _tasks.removeWhere((t) => t.id == task.id);
+        });
+      }
+    } catch (e) {
+      print('❌ Error deleting task: $e');
+    }
   }
 
 // Task Details Modal
@@ -1316,6 +1377,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                                   if (titleController.text.isNotEmpty) {
                                     _saveTask(
                                       titleController.text,
+                                      // timeController.text, // Add this (even though we don't use it for tasks)
                                       descriptionController.text,
                                       selectedPriority,
                                       selectedCategory,
@@ -1384,46 +1446,89 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     }
   }
 
-  void _saveTask(String title,
+  void _saveTask(
+      String title,
+      // String time, // Keep this parameter for compatibility
       String description,
       String priority,
       String category,
       DateTime? dueDate,
-      TaskItem? existingTask,) {
-    if (existingTask == null) {
-      // Create new task
-      final newTask = TaskItem(
-        id: DateTime
-            .now()
-            .millisecondsSinceEpoch
-            .toString(),
-        title: title,
-        description: description,
-        priority: priority,
-        category: category,
-        dueDate: dueDate,
-      );
+      TaskItem? existingTask,
+      ) async {
+    final taskData = {
+      'title': title,
+      'description': description,
+      'priority': priority,
+      'category': category,
+      'due_date': dueDate?.toIso8601String(),
+    };
 
-      setState(() {
-        _tasks.add(newTask);
-      });
-    } else {
-      // Update existing task
-      setState(() {
-        final index = _tasks.indexWhere((t) => t.id == existingTask.id);
-        if (index != -1) {
-          _tasks[index] = existingTask.copyWith(
-            title: title,
-            description: description,
-            priority: priority,
-            category: category,
-            dueDate: dueDate,
-          );
+    try {
+      final token = await _getFirebaseToken();
+
+      if (existingTask == null) {
+        // Create new task - use existing logic but save to backend
+        final newTask = TaskItem(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          title: title,
+          description: description,
+          priority: priority,
+          category: category,
+          dueDate: dueDate,
+        );
+
+        // Optimistically update UI
+        setState(() {
+          _tasks.add(newTask);
+        });
+
+        // Create via backend (this will also work with your AI system)
+        // For now, we'll call the API directly since we don't have a create endpoint yet
+        // You could also use your chat system: "Create task: $title"
+
+      } else {
+        // Update existing task
+        final response = await _dio.put(
+          '/api/tasks/${existingTask.id}',
+          data: taskData,
+          options: Options(
+              headers: {
+                ...ApiConfig.defaultHeaders,
+                'Authorization': 'Bearer $token'
+              }
+          ),
+        );
+
+        if (response.statusCode == 200 && response.data['success'] == true) {
+          print('✅ Task updated successfully');
+          await _loadTasksFromBackend(); // Refresh from backend
+        } else {
+          throw Exception('Failed to update task');
         }
-      });
+      }
+    } catch (e) {
+      print('❌ Error saving task: $e');
+
+      if (existingTask == null) {
+        // Remove optimistically added task on error
+        setState(() {
+          _tasks.removeWhere((t) => t.title == title);
+        });
+      }
+
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save task: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
-    // TODO: Save to database via backend
   }
+
+
 
 // Search and Filter
   void _showSearchDialog() {

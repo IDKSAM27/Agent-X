@@ -24,7 +24,7 @@ from database.operations import (
     save_task, get_user_tasks,
     save_event, get_all_events,
     save_conversation, get_conversation_history, get_all_conversations,
-    migrate_database_schema
+    update_task_completion_in_db, update_task_in_db, delete_task_from_db
 )
 
 # Load env variables
@@ -751,6 +751,23 @@ def build_context_string(conversations):
 
     return "\n".join(context_parts) + "\n\n"
 
+def update_task_completion_in_db(firebase_uid: str, task_id: int, completed: bool) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE tasks SET is_completed = ?, updated_at = ? WHERE id = ? AND firebase_uid = ?",
+            (1 if completed else 0, datetime.now().isoformat(), task_id, firebase_uid)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        logger.error(f"Failed to update task completion: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
 @app.get("/debug/names")
 async def debug_names():
     try:
@@ -966,6 +983,162 @@ async def debug_conversations(firebase_uid: str):
         return {"conversations": conv_list, "total": len(conv_list), "db_path": DB_PATH}
     except Exception as e:
         return {"error": str(e)}
+
+@app.get("/api/tasks")
+async def get_tasks(current_user: dict = Depends(get_current_user)):
+    """Get user's tasks"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+
+        # Get tasks from database
+        tasks = get_user_tasks(firebase_uid, status="all")
+
+        # Format tasks for frontend
+        formatted_tasks = []
+        for task in tasks:
+            task_id, title, description, priority, category, due_date, is_completed, progress, created_at = task
+
+            formatted_tasks.append({
+                "id": task_id,
+                "title": title,
+                "description": description,
+                "priority": priority,
+                "category": category,
+                "due_date": due_date,
+                "is_completed": is_completed,
+                "progress": progress,
+                "tags": "[]",  # Default empty tags
+                "created_at": created_at
+            })
+
+        logger.info(f"📋 API: Retrieved {len(formatted_tasks)} tasks for {firebase_uid}")
+
+        return {
+            "success": True,
+            "tasks": formatted_tasks,
+            "count": len(formatted_tasks)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error getting tasks via API: {e}")
+        return {
+            "success": False,
+            "tasks": [],
+            "count": 0,
+            "error": str(e)
+        }
+
+@app.get("/api/events")
+async def get_events(current_user: dict = Depends(get_current_user)):
+    """Get user's calendar events"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        events = get_all_events(firebase_uid)
+
+        # Format for frontend
+        formatted_events = []
+        for event in events:
+            event_id, title, description, start_time, end_time, category, priority, location, created_at = event
+            formatted_events.append({
+                "id": event_id,
+                "title": title,
+                "description": description,
+                "start_time": start_time,
+                "end_time": end_time,
+                "category": category,
+                "priority": priority,
+                "location": location,
+                "created_at": created_at,
+            })
+
+        logger.info(f"📅 API: Retrieved {len(formatted_events)} events for {firebase_uid}")
+        return {"success": True, "events": formatted_events, "count": len(formatted_events)}
+
+    except Exception as e:
+        logger.error(f"❌ Error getting events via API: {e}")
+        return {"success": False, "events": [], "count": 0, "error": str(e)}
+
+@app.post("/api/tasks/{task_id}/complete")
+async def update_task_completion(
+        task_id: int,
+        request: dict,  # Accept JSON body
+        current_user: dict = Depends(get_current_user)
+):
+    """Update task completion status"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        completed = request.get("completed", False)
+
+        # Update in database
+        success = update_task_completion_in_db(firebase_uid, task_id, completed)
+
+        if success:
+            logger.info(f"✅ Updated task {task_id} completion to {completed} for {firebase_uid}")
+            return {
+                "success": True,
+                "message": f"Task {'completed' if completed else 'reopened'} successfully"
+            }
+        else:
+            logger.warning(f"⚠️ Task {task_id} not found or not updated for {firebase_uid}")
+            return {
+                "success": False,
+                "message": "Task not found or could not be updated"
+            }
+
+    except Exception as e:
+        logger.error(f"❌ Error updating task completion: {e}")
+        return {
+            "success": False,
+            "message": str(e)
+        }
+
+@app.put("/api/tasks/{task_id}")
+async def update_task(
+        task_id: int,
+        request: dict,
+        current_user: dict = Depends(get_current_user)
+):
+    """Update a task"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+
+        # Extract update fields
+        title = request.get("title", "").strip()
+        description = request.get("description", "")
+        priority = request.get("priority", "medium")
+        category = request.get("category", "general")
+        due_date = request.get("due_date")
+
+        if not title:
+            return {"success": False, "message": "Task title is required"}
+
+        # Update in database
+        success = update_task_in_db(firebase_uid, task_id, title, description, priority, category, due_date)
+
+        if success:
+            return {"success": True, "message": "Task updated successfully"}
+        else:
+            return {"success": False, "message": "Task not found or could not be updated"}
+
+    except Exception as e:
+        logger.error(f"❌ Error updating task: {e}")
+        return {"success": False, "message": str(e)}
+
+@app.delete("/api/tasks/{task_id}")
+async def delete_task(task_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a task"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        success = delete_task_from_db(firebase_uid, task_id)
+
+        if success:
+            return {"success": True, "message": "Task deleted successfully"}
+        else:
+            return {"success": False, "message": "Task not found"}
+
+    except Exception as e:
+        logger.error(f"❌ Error deleting task: {e}")
+        return {"success": False, "message": str(e)}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
