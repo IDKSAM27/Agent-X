@@ -7,64 +7,8 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent_x.db")
 
-# --- USER / PROFILE
-def migrate_database_schema():
-    """Migrate database to latest schema with new columns"""
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
-    try:
-        cursor = conn.cursor()
-
-        # ✅ Check and add missing columns to tasks table
-        cursor.execute("PRAGMA table_info(tasks)")
-        existing_columns = [column[1] for column in cursor.fetchall()]
-
-        if 'category' not in existing_columns:
-            cursor.execute("ALTER TABLE tasks ADD COLUMN category TEXT DEFAULT 'general'")
-            logger.info("✅ Added 'category' column to tasks table")
-
-        if 'progress' not in existing_columns:
-            cursor.execute("ALTER TABLE tasks ADD COLUMN progress REAL DEFAULT 0.0")
-            logger.info("✅ Added 'progress' column to tasks table")
-
-        if 'tags' not in existing_columns:
-            cursor.execute("ALTER TABLE tasks ADD COLUMN tags TEXT DEFAULT '[]'")
-            logger.info("✅ Added 'tags' column to tasks table")
-
-        if 'is_completed' not in existing_columns:
-            cursor.execute("ALTER TABLE tasks ADD COLUMN is_completed INTEGER DEFAULT 0")
-            logger.info("✅ Added 'is_completed' column to tasks table")
-
-        # ✅ Check and add missing columns to events table (if it exists)
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
-        if cursor.fetchone():
-            cursor.execute("PRAGMA table_info(events)")
-            existing_event_columns = [column[1] for column in cursor.fetchall()]
-
-            if 'category' not in existing_event_columns:
-                cursor.execute("ALTER TABLE events ADD COLUMN category TEXT DEFAULT 'general'")
-                logger.info("✅ Added 'category' column to events table")
-
-            if 'priority' not in existing_event_columns:
-                cursor.execute("ALTER TABLE events ADD COLUMN priority TEXT DEFAULT 'medium'")
-                logger.info("✅ Added 'priority' column to events table")
-
-            if 'location' not in existing_event_columns:
-                cursor.execute("ALTER TABLE events ADD COLUMN location TEXT")
-                logger.info("✅ Added 'location' column to events table")
-
-        conn.commit()
-        logger.info("✅ Database schema migration completed successfully")
-
-    except Exception as e:
-        logger.error(f"❌ Database migration error: {e}")
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
 def save_user_name(firebase_uid: str, name: str, profession: str):
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)  # ✅ Add timeout
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)  # Add timeout
     try:
         cursor = conn.cursor()
 
@@ -352,5 +296,68 @@ def delete_task_from_db(firebase_uid: str, task_id: int) -> bool:
     except Exception as e:
         logger.error(f"❌ Error deleting task: {e}")
         return False
+    finally:
+        conn.close()
+
+def save_enhanced_event(firebase_uid: str, title: str, description: str, start_time: str,
+                        end_time: str = None, category: str = "general", priority: str = "medium",
+                        location: str = None) -> int:
+    """Enhanced event creation with all fields"""
+    conn = sqlite3.connect("agent_x.db")
+    cursor = conn.cursor()
+
+    now = datetime.now().isoformat()
+
+    cursor.execute('''
+        INSERT INTO events (firebase_uid, title, description, start_time, end_time, 
+                           category, priority, location, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (firebase_uid, title, description, start_time, end_time,
+          category, priority, location, now, now))
+
+    event_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return event_id
+
+def update_event_in_db(firebase_uid: str, event_id: int, title: str, description: str,
+                       start_time: str, end_time: str = None, category: str = "general",
+                       priority: str = "medium", location: str = None) -> bool:
+    """Update event in database"""
+    conn = sqlite3.connect("agent_x.db")
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute('''
+            UPDATE events SET title = ?, description = ?, start_time = ?, end_time = ?,
+                             category = ?, priority = ?, location = ?, updated_at = ?
+            WHERE id = ? AND firebase_uid = ?
+        ''', (title, description, start_time, end_time, category, priority,
+              location, datetime.now().isoformat(), event_id, firebase_uid))
+
+        conn.commit()
+        return cursor.rowcount > 0
+
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+def delete_event_from_db(firebase_uid: str, event_id: int) -> bool:
+    """Delete event from database"""
+    conn = sqlite3.connect("agent_x.db")
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("DELETE FROM events WHERE id = ? AND firebase_uid = ?",
+                       (event_id, firebase_uid))
+        conn.commit()
+        return cursor.rowcount > 0
+
+    except Exception as e:
+        conn.rollback()
+        raise e
     finally:
         conn.close()

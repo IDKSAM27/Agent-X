@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:logger/logger.dart';
 import '../core/constants/app_constants.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -23,6 +24,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     receiveTimeout: const Duration(seconds: 30),
   ));
 
+  var logger = Logger();
 
   // Sample events data (we'll replace with database later)
   final Map<DateTime, List<Map<String, dynamic>>> _events = {};
@@ -52,6 +54,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           },
         ),
       );
+
       if (response.statusCode == 200 && response.data['success'] == true) {
         final List<dynamic> eventsJson = response.data['events'] ?? [];
         setState(() {
@@ -60,11 +63,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
             final date = DateTime.parse(e['start_time']);
             final normalized = DateTime(date.year, date.month, date.day);
             final eventMap = {
+              'id': e['id'], // Include ID for CRUD operations
               'title': e['title'],
               'description': e['description'],
               'time': e['start_time']!.split(' ').last,
               'type': e['category'] ?? 'general',
-              'color': Colors.blue, // map category to color if you want
+              'color': Colors.blue,
             };
             _events[normalized] = (_events[normalized] ?? [])..add(eventMap);
           }
@@ -75,61 +79,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
-  //TODO:remove this once the real stuff starts working
-  void _loadSampleEvents() {
-    // Sample events for demo - including multiple events on same day
-    final tomorrow = DateTime.now().add(const Duration(days: 1));
-    final nextWeek = DateTime.now().add(const Duration(days: 7));
-    final today = DateTime.now();
-
-    setState(() {
-      // Multiple events on same day for testing
-      _events[_normalizeDate(tomorrow)] = [
-        {
-          'title': 'Team Meeting',
-          'time': '10:00 AM',
-          'type': 'work',
-          'color': Colors.blue,
-        },
-        {
-          'title': 'Lunch Break',
-          'time': '12:30 PM',
-          'type': 'personal',
-          'color': Colors.green,
-        },
-        {
-          'title': 'Client Call',
-          'time': '3:00 PM',
-          'type': 'work',
-          'color': Colors.orange,
-        },
-      ];
-
-      _events[_normalizeDate(nextWeek)] = [
-        {
-          'title': 'Project Review',
-          'time': '2:00 PM',
-          'type': 'work',
-          'color': Colors.orange,
-        },
-      ];
-
-      _events[_normalizeDate(today)] = [
-        {
-          'title': 'Morning Standup',
-          'time': '9:00 AM',
-          'type': 'work',
-          'color': Colors.blue,
-        },
-        {
-          'title': 'Gym Session',
-          'time': '6:00 PM',
-          'type': 'personal',
-          'color': Colors.red,
-        },
-      ];
-    });
-  }
 
   DateTime _normalizeDate(DateTime date) {
     return DateTime(date.year, date.month, date.day);
@@ -593,8 +542,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-
-
   Widget _buildEventDialog({Map<String, dynamic>? existingEvent}) {
     final titleController = TextEditingController(
       text: existingEvent?['title'] ?? '',
@@ -739,33 +686,83 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
     );
   }
+  Future<void> _saveEvent(String title, String time, Map<String, dynamic>? existingEvent) async {
+    try {
+      final token = await _getFirebaseToken();
+      final selectedDate = _selectedDay ?? DateTime.now();
 
-  void _saveEvent(String title, String time, Map<String, dynamic>? existingEvent) {
-    final normalizedDate = _normalizeDate(_selectedDay ?? DateTime.now());
+      // Parse time and create proper datetime
+      final timeOfDay = _parseTimeString(time);
+      final startTime = DateTime(
+          selectedDate.year,
+          selectedDate.month,
+          selectedDate.day,
+          timeOfDay.hour,
+          timeOfDay.minute
+      );
 
-    setState(() {
-      _events[normalizedDate] = _events[normalizedDate] ?? [];
+      final eventData = {
+        "title": title,
+        "description": "",
+        "start_time": startTime.toIso8601String(),
+        "category": "general",
+        "priority": "medium",
+      };
+
+      Response response;
 
       if (existingEvent == null) {
         // Create new event
-        _events[normalizedDate]!.add({
-          'title': title,
-          'time': time,
-          'type': 'work',
-          'color': Theme.of(context).colorScheme.primary,
-        });
+        response = await _dio.post(
+          '/api/events',
+          data: eventData,
+          options: Options(
+            headers: {
+              ...ApiConfig.defaultHeaders,
+              'Authorization': 'Bearer $token',
+            },
+          ),
+        );
       } else {
         // Update existing event
-        final index = _events[normalizedDate]!.indexOf(existingEvent);
-        if (index != -1) {
-          _events[normalizedDate]![index] = {
-            ...existingEvent,
-            'title': title,
-            'time': time,
-          };
+        final eventId = existingEvent['id'];
+        response = await _dio.put(
+          '/api/events/$eventId',
+          data: eventData,
+          options: Options(
+            headers: {
+              ...ApiConfig.defaultHeaders,
+              'Authorization': 'Bearer $token',
+            },
+          ),
+        );
+      }
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        // Refresh events from backend
+        await _loadEventsFromBackend();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(existingEvent == null ? 'Event created!' : 'Event updated!'),
+              backgroundColor: Colors.green,
+            ),
+          );
         }
       }
-    });
+
+    } catch (e) {
+      logger.e('❌ Error saving event: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save event: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _handleEventAction(String action, Map<String, dynamic> event) {
@@ -799,12 +796,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
-              setState(() {
-                final normalizedDate = _normalizeDate(_selectedDay!);
-                _events[normalizedDate]?.remove(event);
-              });
-              Navigator.pop(context);
+            onPressed: () async {
+              Navigator.pop(context); // Close dialog first
+              await _deleteEventFromBackend(event);
             },
             style: TextButton.styleFrom(
               foregroundColor: Theme.of(context).colorScheme.error,
@@ -885,6 +879,68 @@ class _CalendarScreenState extends State<CalendarScreen> {
     if (picked != null) {
       final formattedTime = picked.format(context);
       controller.text = formattedTime;
+    }
+  }
+  Future<void> _deleteEventFromBackend(Map<String, dynamic> event) async {
+    try {
+      final token = await _getFirebaseToken();
+      final eventId = event['id'];
+
+      final response = await _dio.delete(
+        '/api/events/$eventId',
+        options: Options(
+          headers: {
+            ...ApiConfig.defaultHeaders,
+            'Authorization': 'Bearer $token',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        // Refresh events from backend
+        await _loadEventsFromBackend();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Event deleted!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+
+    } catch (e) {
+      print('❌ Error deleting event: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete event: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Helper method to parse time string
+  TimeOfDay _parseTimeString(String timeStr) {
+    try {
+      final timeParts = timeStr.split(':');
+      int hour = int.parse(timeParts[0]);
+      int minute = int.parse(timeParts[1].split(' ')[0]);
+
+      // Handle AM/PM
+      if (timeStr.toUpperCase().contains('PM') && hour != 12) {
+        hour += 12;
+      } else if (timeStr.toUpperCase().contains('AM') && hour == 12) {
+        hour = 0;
+      }
+
+      return TimeOfDay(hour: hour, minute: minute);
+    } catch (e) {
+      // Default fallback
+      return const TimeOfDay(hour: 10, minute: 0);
     }
   }
 }
