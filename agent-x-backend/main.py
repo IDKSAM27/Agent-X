@@ -982,6 +982,37 @@ async def delete_task(task_id: int, current_user: dict = Depends(get_current_use
         logger.error(f"❌ Error deleting task: {e}")
         return {"success": False, "message": str(e)}
 
+@app.post("/api/tasks")
+async def create_task(request: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new task"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+
+        # Extract task data
+        title = request.get("title", "").strip()
+        description = request.get("description", "")
+        priority = request.get("priority", "medium")
+        category = request.get("category", "general")
+        due_date = request.get("due_date")
+
+        if not title:
+            return {"success": False, "message": "Task title is required"}
+
+        # Save to database
+        task_id = save_task(firebase_uid, title, description, priority, category, due_date)
+
+        logger.info(f"📋 Created task {task_id} for {firebase_uid}: {title}")
+
+        return {
+            "success": True,
+            "message": "Task created successfully",
+            "task_id": task_id
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error creating task: {e}")
+        return {"success": False, "message": str(e)}
+
 # Calendar CRUD endpoints
 @app.post("/api/events")
 async def create_event(request: dict, current_user: dict = Depends(get_current_user)):

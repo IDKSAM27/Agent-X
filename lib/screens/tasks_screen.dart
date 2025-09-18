@@ -198,6 +198,20 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           ),
         ],
       ),
+      floatingActionButton: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).padding.bottom + 16,
+        ),
+        child: FloatingActionButton.extended(
+          onPressed: _showCreateTaskBottomSheet,
+          icon: const Icon(Icons.add),
+          label: const Text('New Task'),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          heroTag: null,
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: RefreshIndicator(
         onRefresh: _loadTasksFromBackend,
         child: ListView(
@@ -1311,28 +1325,16 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                           children: [
                             Text(
                               'Due Date',
-                              style: Theme
-                                  .of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                             const Spacer(),
                             if (selectedDueDate != null) ...[
                               Text(
-                                '${selectedDueDate!.day}/${selectedDueDate!
-                                    .month}/${selectedDueDate!.year}',
-                                style: Theme
-                                    .of(context)
-                                    .textTheme
-                                    .bodyMedium
-                                    ?.copyWith(
-                                  color: Theme
-                                      .of(context)
-                                      .colorScheme
-                                      .primary,
+                                '${selectedDueDate!.day}/${selectedDueDate!.month}/${selectedDueDate!.year}',
+                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Theme.of(context).colorScheme.primary,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -1347,14 +1349,20 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                               ),
                             ] else
                               OutlinedButton.icon(
-                                onPressed: () =>
-                                    _selectDueDate(context, setModalState,
-                                        selectedDueDate),
+                                onPressed: () async {
+                                  final DateTime? picked = await _selectDueDateAsync(context, selectedDueDate);
+                                  if (picked != null) {
+                                    setModalState(() {
+                                      selectedDueDate = picked;
+                                    });
+                                  }
+                                },
                                 icon: const Icon(Icons.calendar_today),
                                 label: const Text('Set Due Date'),
                               ),
                           ],
                         ),
+
                         const SizedBox(height: AppConstants.spacingL),
 
                         // Action Buttons
@@ -1406,8 +1414,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     );
   }
 
-  void _selectDueDate(BuildContext context, StateSetter setModalState,
-      DateTime? currentDate) async {
+  Future<DateTime?> _selectDueDateAsync(BuildContext context, DateTime? currentDate) async {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: currentDate ?? DateTime.now().add(const Duration(days: 1)),
@@ -1417,18 +1424,9 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
         return Theme(
           data: Theme.of(context).copyWith(
             datePickerTheme: DatePickerThemeData(
-              backgroundColor: Theme
-                  .of(context)
-                  .colorScheme
-                  .surface,
-              headerBackgroundColor: Theme
-                  .of(context)
-                  .colorScheme
-                  .primaryContainer,
-              headerForegroundColor: Theme
-                  .of(context)
-                  .colorScheme
-                  .onPrimaryContainer,
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              headerBackgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              headerForegroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
             ),
           ),
           child: child!,
@@ -1436,19 +1434,12 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       },
     );
 
-    if (picked != null) {
-      setModalState(() {
-        // Set selectedDueDate in the modal state
-      });
-      setState(() {
-        // Update the main widget state if needed
-      });
-    }
+    return picked;
   }
+
 
   void _saveTask(
       String title,
-      // String time, // Keep this parameter for compatibility
       String description,
       String priority,
       String category,
@@ -1465,70 +1456,63 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
 
     try {
       final token = await _getFirebaseToken();
+      Response response;
 
       if (existingTask == null) {
-        // Create new task - use existing logic but save to backend
-        final newTask = TaskItem(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          title: title,
-          description: description,
-          priority: priority,
-          category: category,
-          dueDate: dueDate,
+        // CREATE: Call backend to create new task
+        response = await _dio.post(
+          '/api/tasks',
+          data: taskData,
+          options: Options(
+            headers: {
+              ...ApiConfig.defaultHeaders,
+              'Authorization': 'Bearer $token',
+            },
+          ),
         );
-
-        // Optimistically update UI
-        setState(() {
-          _tasks.add(newTask);
-        });
-
-        // Create via backend (this will also work with your AI system)
-        // For now, we'll call the API directly since we don't have a create endpoint yet
-        // You could also use your chat system: "Create task: $title"
-
       } else {
-        // Update existing task
-        final response = await _dio.put(
+        // UPDATE: Call backend to update existing task
+        response = await _dio.put(
           '/api/tasks/${existingTask.id}',
           data: taskData,
           options: Options(
-              headers: {
-                ...ApiConfig.defaultHeaders,
-                'Authorization': 'Bearer $token'
-              }
+            headers: {
+              ...ApiConfig.defaultHeaders,
+              'Authorization': 'Bearer $token',
+            },
           ),
         );
-
-        if (response.statusCode == 200 && response.data['success'] == true) {
-          print('✅ Task updated successfully');
-          await _loadTasksFromBackend(); // Refresh from backend
-        } else {
-          throw Exception('Failed to update task');
-        }
       }
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        // Refresh tasks from backend
+        await _loadTasksFromBackend();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(existingTask == null ? 'Task created!' : 'Task updated!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        throw Exception(response.data['message'] ?? 'Failed to save task');
+      }
+
     } catch (e) {
       print('❌ Error saving task: $e');
 
-      if (existingTask == null) {
-        // Remove optimistically added task on error
-        setState(() {
-          _tasks.removeWhere((t) => t.title == title);
-        });
-      }
-
-      // Show error message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save task: $e'),
+            content: Text('Failed to save task: ${e.toString()}'),
             backgroundColor: Colors.red,
           ),
         );
       }
     }
   }
-
-
 
 // Search and Filter
   void _showSearchDialog() {

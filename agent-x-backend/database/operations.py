@@ -59,30 +59,50 @@ def get_user_profession_from_db(firebase_uid: str) -> str:
 
 # --- TASKS
 
-def save_task(firebase_uid: str, title: str, description: str = "", priority: str = "medium", category: str = "general", due_date: str = None):
-    """Save a task"""
-    conn = sqlite3.connect(DB_PATH, timeout=10.0)
-    try:
-        cursor = conn.cursor()
-        now = datetime.now().isoformat()
+def save_task(firebase_uid: str, title: str, description: str = "", priority: str = "medium",
+              category: str = "general", due_date: str = None) -> int:
+    """Enhanced task creation with all fields"""
+    conn = sqlite3.connect("agent_x.db")
+    cursor = conn.cursor()
 
-        cursor.execute('''
-            INSERT INTO tasks (firebase_uid, title, description, priority, category, due_date, is_completed, progress, tags, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (firebase_uid, title, description, priority, category, due_date, 0, 0.0, '[]', now, now))
+    now = datetime.now().isoformat()
 
-        task_id = cursor.lastrowid
-        conn.commit()
+    cursor.execute('''
+        INSERT INTO tasks (firebase_uid, title, description, priority, category, due_date, 
+                          is_completed, progress, tags, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, 0.0, '[]', ?, ?)
+    ''', (firebase_uid, title, description, priority, category, due_date, now, now))
 
-        logger.info(f"✅ Saved task: {title} for Firebase UID {firebase_uid}")
-        return task_id
+    task_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
 
-    except Exception as e:
-        logger.error(f"❌ Error saving task: {e}")
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    return task_id
+
+# def save_task(firebase_uid: str, title: str, description: str = "", priority: str = "medium", category: str = "general", due_date: str = None):
+#     """Save a task"""
+#     conn = sqlite3.connect(DB_PATH, timeout=10.0)
+#     try:
+#         cursor = conn.cursor()
+#         now = datetime.now().isoformat()
+#
+#         cursor.execute('''
+#             INSERT INTO tasks (firebase_uid, title, description, priority, category, due_date, is_completed, progress, tags, created_at, updated_at)
+#             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+#         ''', (firebase_uid, title, description, priority, category, due_date, 0, 0.0, '[]', now, now))
+#
+#         task_id = cursor.lastrowid
+#         conn.commit()
+#
+#         logger.info(f"✅ Saved task: {title} for Firebase UID {firebase_uid}")
+#         return task_id
+#
+#     except Exception as e:
+#         logger.error(f"❌ Error saving task: {e}")
+#         conn.rollback()
+#         raise
+#     finally:
+#         conn.close()
 
 def get_user_tasks(firebase_uid: str, status: str = "pending"):
     """Get user tasks by status"""
