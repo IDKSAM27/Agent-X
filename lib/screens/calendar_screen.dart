@@ -66,7 +66,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               'id': e['id'], // Include ID for CRUD operations
               'title': e['title'],
               'description': e['description'],
-              'time': e['start_time']!.split(' ').last,
+              'time': _formatTimeFromDateTime(e['start_time']),
               'type': e['category'] ?? 'general',
               'color': Colors.blue,
             };
@@ -941,6 +941,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
     } catch (e) {
       // Default fallback
       return const TimeOfDay(hour: 10, minute: 0);
+    }
+  }
+
+  String _formatTimeFromDateTime(String dateTimeStr) {
+    try {
+      final dateTime = DateTime.parse(dateTimeStr);
+      return "${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}";
+    } catch (e) {
+      // Fallback for any parsing errors
+      return "00:00";
     }
   }
 }
