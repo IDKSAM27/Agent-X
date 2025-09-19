@@ -24,7 +24,8 @@ from database.operations import (
     save_task, get_user_tasks,
     save_event, get_all_events,
     save_conversation, get_conversation_history, get_all_conversations,
-    update_task_completion_in_db, update_task_in_db, delete_task_from_db
+    update_task_completion_in_db, update_task_in_db, delete_task_from_db,
+    save_enhanced_event, update_event_in_db, delete_event_from_db
 )
 
 # Load env variables
@@ -74,165 +75,6 @@ security = HTTPBearer()
 
 # TODO: TEMPORARY: Add development mode bypass
 DEVELOPMENT_MODE = False # Set to False in production
-
-def migrate_database_to_firebase_uid():
-    """Migrate existing database schema from user_id to firebase_uid"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        # Check if migration is needed
-        cursor.execute("PRAGMA table_info(users)")
-        columns = [column[1] for column in cursor.fetchall()]
-
-        if 'firebase_uid' in columns:
-            logger.info("✅ Database already migrated to firebase_uid schema")
-            conn.close()
-            return
-
-        logger.info("🔄 Starting database migration to firebase_uid schema...")
-
-        # Begin transaction
-        cursor.execute("BEGIN TRANSACTION")
-
-        # 1. Backup existing tables
-        cursor.execute("CREATE TABLE users_backup AS SELECT * FROM users")
-        cursor.execute("CREATE TABLE tasks_backup AS SELECT * FROM tasks")
-        cursor.execute("CREATE TABLE calendar_events_backup AS SELECT * FROM calendar_events")
-
-        # Check if conversations table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations'")
-        if cursor.fetchone():
-            cursor.execute("CREATE TABLE conversations_backup AS SELECT * FROM conversations")
-
-        # 2. Drop existing tables
-        cursor.execute("DROP TABLE users")
-        cursor.execute("DROP TABLE tasks")
-        cursor.execute("DROP TABLE calendar_events")
-        cursor.execute("DROP TABLE IF EXISTS conversations")
-
-        # 3. Create new schema with firebase_uid
-        cursor.execute('''
-            CREATE TABLE users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                firebase_uid TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                profession TEXT,
-                display_name TEXT,
-                photo_url TEXT,
-                email_verified BOOLEAN DEFAULT FALSE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_login DATETIME,
-                preferences JSON
-            )
-        ''')
-
-        cursor.execute('''
-            CREATE TABLE tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                firebase_uid TEXT NOT NULL,
-                title TEXT,
-                description TEXT,
-                status TEXT DEFAULT 'pending',
-                priority TEXT DEFAULT 'medium',
-                due_date TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                completed_at TIMESTAMP,
-                FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
-            )
-        ''')
-
-        cursor.execute('''
-            CREATE TABLE calendar_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                firebase_uid TEXT NOT NULL,
-                title TEXT,
-                description TEXT,
-                start_time TEXT,
-                end_time TEXT,
-                location TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
-            )
-        ''')
-
-        cursor.execute('''
-            CREATE TABLE conversations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                firebase_uid TEXT NOT NULL,
-                user_message TEXT NOT NULL,
-                assistant_response TEXT NOT NULL,
-                agent_name TEXT,
-                intent TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                session_id TEXT,
-                FOREIGN KEY (firebase_uid) REFERENCES users(firebase_uid)
-            )
-        ''')
-
-        # 4. Migrate data (map old user_id to firebase_uid)
-        # For development, we'll map old data to dev user
-        DEV_FIREBASE_UID = "dev_user_123"
-
-        # Migrate users (if any)
-        cursor.execute("SELECT user_id, name, profession FROM users_backup")
-        old_users = cursor.fetchall()
-        for old_user in old_users:
-            cursor.execute('''
-                INSERT INTO users (firebase_uid, display_name, profession, email)
-                VALUES (?, ?, ?, ?)
-            ''', (DEV_FIREBASE_UID, old_user[1], old_user[2], "dev@test.com"))
-
-        # Migrate tasks
-        cursor.execute("SELECT title, description, status, priority, due_date, created_at FROM tasks_backup")
-        old_tasks = cursor.fetchall()
-        for task in old_tasks:
-            cursor.execute('''
-                INSERT INTO tasks (firebase_uid, title, description, status, priority, due_date, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (DEV_FIREBASE_UID, *task))
-
-        # Migrate events
-        cursor.execute("SELECT title, description, start_time, end_time, location, created_at FROM calendar_events_backup")
-        old_events = cursor.fetchall()
-        for event in old_events:
-            cursor.execute('''
-                INSERT INTO calendar_events (firebase_uid, title, description, start_time, end_time, location, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (DEV_FIREBASE_UID, *event))
-
-        # Migrate conversations if they exist
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='conversations_backup'")
-        if cursor.fetchone():
-            cursor.execute("SELECT user_message, assistant_response, agent_name, intent, timestamp, session_id FROM conversations_backup")
-            old_conversations = cursor.fetchall()
-            for conv in old_conversations:
-                cursor.execute('''
-                    INSERT INTO conversations (firebase_uid, user_message, assistant_response, agent_name, intent, timestamp, session_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (DEV_FIREBASE_UID, *conv))
-
-        # 5. Clean up backup tables
-        cursor.execute("DROP TABLE users_backup")
-        cursor.execute("DROP TABLE tasks_backup")
-        cursor.execute("DROP TABLE calendar_events_backup")
-        cursor.execute("DROP TABLE IF EXISTS conversations_backup")
-
-        # Commit transaction
-        cursor.execute("COMMIT")
-        conn.close()
-
-        logger.info("✅ Database migration completed successfully!")
-        logger.info(f"📊 All data migrated to firebase_uid: {DEV_FIREBASE_UID}")
-
-    except Exception as e:
-        logger.error(f"❌ Database migration failed: {e}")
-        try:
-            cursor.execute("ROLLBACK")
-            logger.info("🔄 Migration rolled back")
-        except:
-            pass
-        raise
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer())):
     """Dependency to get current authenticated Firebase user with debug info"""
@@ -1138,6 +980,128 @@ async def delete_task(task_id: int, current_user: dict = Depends(get_current_use
 
     except Exception as e:
         logger.error(f"❌ Error deleting task: {e}")
+        return {"success": False, "message": str(e)}
+
+@app.post("/api/tasks")
+async def create_task(request: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new task"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+
+        # Extract task data
+        title = request.get("title", "").strip()
+        description = request.get("description", "")
+        priority = request.get("priority", "medium")
+        category = request.get("category", "general")
+        due_date = request.get("due_date")
+
+        if not title:
+            return {"success": False, "message": "Task title is required"}
+
+        # Save to database
+        task_id = save_task(firebase_uid, title, description, priority, category, due_date)
+
+        logger.info(f"📋 Created task {task_id} for {firebase_uid}: {title}")
+
+        return {
+            "success": True,
+            "message": "Task created successfully",
+            "task_id": task_id
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error creating task: {e}")
+        return {"success": False, "message": str(e)}
+
+# Calendar CRUD endpoints
+@app.post("/api/events")
+async def create_event(request: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new calendar event"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+
+        # Extract event data
+        title = request.get("title", "").strip()
+        description = request.get("description", "")
+        start_time = request.get("start_time")  # Expected format: "2025-09-18 10:00:00"
+        end_time = request.get("end_time")
+        category = request.get("category", "general")
+        priority = request.get("priority", "medium")
+        location = request.get("location")
+
+        if not title or not start_time:
+            return {"success": False, "message": "Title and start time are required"}
+
+        # Save to database using existing save_event function (we'll enhance it)
+        event_id = save_enhanced_event(
+            firebase_uid, title, description, start_time, end_time,
+            category, priority, location
+        )
+
+        logger.info(f"📅 Created event {event_id} for {firebase_uid}: {title}")
+
+        return {
+            "success": True,
+            "message": "Event created successfully",
+            "event_id": event_id
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error creating event: {e}")
+        return {"success": False, "message": str(e)}
+
+@app.put("/api/events/{event_id}")
+async def update_event(
+        event_id: int,
+        request: dict,
+        current_user: dict = Depends(get_current_user)
+):
+    """Update an existing calendar event"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+
+        title = request.get("title", "").strip()
+        description = request.get("description", "")
+        start_time = request.get("start_time")
+        end_time = request.get("end_time")
+        category = request.get("category", "general")
+        priority = request.get("priority", "medium")
+        location = request.get("location")
+
+        if not title or not start_time:
+            return {"success": False, "message": "Title and start time are required"}
+
+        # Update in database
+        success = update_event_in_db(
+            firebase_uid, event_id, title, description, start_time,
+            end_time, category, priority, location
+        )
+
+        if success:
+            logger.info(f"📅 Updated event {event_id} for {firebase_uid}")
+            return {"success": True, "message": "Event updated successfully"}
+        else:
+            return {"success": False, "message": "Event not found or could not be updated"}
+
+    except Exception as e:
+        logger.error(f"❌ Error updating event: {e}")
+        return {"success": False, "message": str(e)}
+
+@app.delete("/api/events/{event_id}")
+async def delete_event(event_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a calendar event"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        success = delete_event_from_db(firebase_uid, event_id)
+
+        if success:
+            logger.info(f"📅 Deleted event {event_id} for {firebase_uid}")
+            return {"success": True, "message": "Event deleted successfully"}
+        else:
+            return {"success": False, "message": "Event not found"}
+
+    except Exception as e:
+        logger.error(f"❌ Error deleting event: {e}")
         return {"success": False, "message": str(e)}
 
 if __name__ == "__main__":

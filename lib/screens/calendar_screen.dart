@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:logger/logger.dart';
 import '../core/constants/app_constants.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,12 +18,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.month;
 
+  // ADD: Event form state variables
+  TextEditingController? _eventTitleController;
+  TimeOfDay? _eventSelectedTime;
+  String? _eventSelectedCategory;
+  bool? _eventIsAllDay;
+
   final Dio _dio = Dio(BaseOptions(
     baseUrl: ApiConfig.baseUrl,
     connectTimeout: const Duration(seconds: 30),
     receiveTimeout: const Duration(seconds: 30),
   ));
 
+  var logger = Logger();
 
   // Sample events data (we'll replace with database later)
   final Map<DateTime, List<Map<String, dynamic>>> _events = {};
@@ -33,6 +41,32 @@ class _CalendarScreenState extends State<CalendarScreen> {
     _selectedDay = DateTime.now();
     // _loadSampleEvents();
     _loadEventsFromBackend();
+  }
+
+  Future<TimeOfDay?> _showEnhancedTimePicker(BuildContext context, TimeOfDay initialTime) async {
+    return await showTimePicker(
+      context: context,
+      initialTime: initialTime,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            timePickerTheme: TimePickerThemeData(
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              hourMinuteTextColor: Theme.of(context).colorScheme.onSurface,
+              dayPeriodTextColor: Theme.of(context).colorScheme.onSurface,
+              dialHandColor: Theme.of(context).colorScheme.primary,
+              dialBackgroundColor: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+              hourMinuteColor: Theme.of(context).colorScheme.primaryContainer,
+              dayPeriodBorderSide: BorderSide(color: Theme.of(context).colorScheme.primary),
+            ),
+          ),
+          child: MediaQuery(
+            data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+            child: child!,
+          ),
+        );
+      },
+    );
   }
 
   Future<String?> _getFirebaseToken() async {
@@ -52,6 +86,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           },
         ),
       );
+
       if (response.statusCode == 200 && response.data['success'] == true) {
         final List<dynamic> eventsJson = response.data['events'] ?? [];
         setState(() {
@@ -60,11 +95,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
             final date = DateTime.parse(e['start_time']);
             final normalized = DateTime(date.year, date.month, date.day);
             final eventMap = {
+              'id': e['id'], // Include ID for CRUD operations
               'title': e['title'],
               'description': e['description'],
-              'time': e['start_time']!.split(' ').last,
+              'time': _formatTimeFromDateTime(e['start_time']),
               'type': e['category'] ?? 'general',
-              'color': Colors.blue, // map category to color if you want
+              'color': Colors.blue,
             };
             _events[normalized] = (_events[normalized] ?? [])..add(eventMap);
           }
@@ -75,61 +111,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
-  //TODO:remove this once the real stuff starts working
-  void _loadSampleEvents() {
-    // Sample events for demo - including multiple events on same day
-    final tomorrow = DateTime.now().add(const Duration(days: 1));
-    final nextWeek = DateTime.now().add(const Duration(days: 7));
-    final today = DateTime.now();
-
-    setState(() {
-      // Multiple events on same day for testing
-      _events[_normalizeDate(tomorrow)] = [
-        {
-          'title': 'Team Meeting',
-          'time': '10:00 AM',
-          'type': 'work',
-          'color': Colors.blue,
-        },
-        {
-          'title': 'Lunch Break',
-          'time': '12:30 PM',
-          'type': 'personal',
-          'color': Colors.green,
-        },
-        {
-          'title': 'Client Call',
-          'time': '3:00 PM',
-          'type': 'work',
-          'color': Colors.orange,
-        },
-      ];
-
-      _events[_normalizeDate(nextWeek)] = [
-        {
-          'title': 'Project Review',
-          'time': '2:00 PM',
-          'type': 'work',
-          'color': Colors.orange,
-        },
-      ];
-
-      _events[_normalizeDate(today)] = [
-        {
-          'title': 'Morning Standup',
-          'time': '9:00 AM',
-          'type': 'work',
-          'color': Colors.blue,
-        },
-        {
-          'title': 'Gym Session',
-          'time': '6:00 PM',
-          'type': 'personal',
-          'color': Colors.red,
-        },
-      ];
-    });
-  }
 
   DateTime _normalizeDate(DateTime date) {
     return DateTime(date.year, date.month, date.day);
@@ -467,12 +448,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   void _showCreateEventDialog() {
-    // PERFORMANCE FIX: Use bottom sheet instead of dialog for smoother performance
+    // Reset state for new event creation
+    _resetEventFormState();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      // Enable smooth animations
       enableDrag: true,
       isDismissible: true,
       builder: (context) => _buildCreateEventBottomSheet(),
@@ -480,115 +462,285 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Widget _buildCreateEventBottomSheet({Map<String, dynamic>? existingEvent}) {
-    final titleController = TextEditingController(
-      text: existingEvent?['title'] ?? '',
-    );
-    final timeController = TextEditingController(
-      text: existingEvent?['time'] ?? '10:00 AM',
-    );
+    // FIXED: Only initialize once, don't clear on rebuilds
+    if (_eventTitleController == null) {
+      _eventTitleController = TextEditingController();
+      _eventSelectedTime = TimeOfDay(hour: DateTime.now().hour + 1, minute: 0);
+      _eventSelectedCategory = 'general';
+      _eventIsAllDay = false;
 
-    return Container(
-      // PERFORMANCE FIX: Proper keyboard handling without overflow
-      padding: EdgeInsets.only(
-        left: 24,
-        right: 24,
-        top: 24,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppConstants.radiusL),
+      // Only set text for existing events during initial creation
+      if (existingEvent != null) {
+        _eventTitleController!.text = existingEvent['title'] ?? '';
+        _eventSelectedTime = _parseTimeString(existingEvent['time']);
+        _eventSelectedCategory = existingEvent['type'] ?? 'general';
+        _eventIsAllDay = existingEvent['isAllDay'] ?? false;
+      }
+    }
+
+    return StatefulBuilder(
+      builder: (context, setModalState) => Container(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 24,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
         ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle bar
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(AppConstants.radiusL),
           ),
-          const SizedBox(height: AppConstants.spacingL),
-
-          // Title
-          Text(
-            existingEvent == null ? 'Create Event' : 'Edit Event',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: AppConstants.spacingL),
-
-          // PERFORMANCE FIX: Simplified text fields
-          TextFormField(
-            controller: titleController,
-            decoration: InputDecoration(
-              labelText: 'Event Title',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppConstants.radiusM),
-              ),
-              prefixIcon: const Icon(Icons.event),
-            ),
-            textCapitalization: TextCapitalization.words,
-          ),
-          const SizedBox(height: AppConstants.spacingM),
-
-          TextFormField(
-            controller: timeController,
-            decoration: InputDecoration(
-              labelText: 'Time',
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppConstants.radiusM),
-              ),
-              prefixIcon: const Icon(Icons.access_time),
-            ),
-            onTap: () => _showTimePicker(context, timeController),
-            readOnly: true,
-          ),
-          const SizedBox(height: AppConstants.spacingL),
-
-          // Action Buttons
-          Row(
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+              // Handle bar
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  child: const Text('Cancel'),
                 ),
               ),
-              const SizedBox(width: AppConstants.spacingM),
-              Expanded(
-                child: FilledButton(
-                  onPressed: () {
-                    if (titleController.text.isNotEmpty) {
-                      _saveEvent(
-                        titleController.text,
-                        timeController.text,
-                        existingEvent,
-                      );
-                      Navigator.pop(context);
-                    }
-                  },
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: Text(existingEvent == null ? 'Create' : 'Save'),
+              const SizedBox(height: AppConstants.spacingL),
+
+              // Title
+              Text(
+                existingEvent == null ? 'Create Event' : 'Edit Event',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
                 ),
+              ),
+              const SizedBox(height: AppConstants.spacingL),
+
+              // Event Title Field
+              TextFormField(
+                controller: _eventTitleController,
+                decoration: InputDecoration(
+                  labelText: 'Event Title',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                  ),
+                  prefixIcon: const Icon(Icons.event),
+                ),
+                textCapitalization: TextCapitalization.words,
+              ),
+              const SizedBox(height: AppConstants.spacingL),
+
+              // All Day Toggle
+              Row(
+                children: [
+                  Text(
+                    'All Day Event',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  Switch(
+                    value: _eventIsAllDay!,
+                    onChanged: (value) {
+                      setModalState(() {
+                        _eventIsAllDay = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppConstants.spacingM),
+
+              // Time Selection (only show if not all day)
+              if (!_eventIsAllDay!) ...[
+                Row(
+                  children: [
+                    Text(
+                      'Time',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                      ),
+                      child: Text(
+                        _eventSelectedTime!.format(context),
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () async {
+                        final TimeOfDay? picked = await _showEnhancedTimePicker(context, _eventSelectedTime!);
+                        if (picked != null) {
+                          setModalState(() {
+                            _eventSelectedTime = picked;
+                          });
+                        }
+                      },
+                      icon: const Icon(Icons.schedule),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.spacingM),
+
+                // Quick Time Presets
+                Text(
+                  'Quick Times',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingM),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    _buildQuickTimeChip(context, '9:00 AM', const TimeOfDay(hour: 9, minute: 0), _eventSelectedTime!, (time) {
+                      setModalState(() {
+                        _eventSelectedTime = time;
+                      });
+                    }),
+                    _buildQuickTimeChip(context, '12:00 PM', const TimeOfDay(hour: 12, minute: 0), _eventSelectedTime!, (time) {
+                      setModalState(() {
+                        _eventSelectedTime = time;
+                      });
+                    }),
+                    _buildQuickTimeChip(context, '2:00 PM', const TimeOfDay(hour: 14, minute: 0), _eventSelectedTime!, (time) {
+                      setModalState(() {
+                        _eventSelectedTime = time;
+                      });
+                    }),
+                    _buildQuickTimeChip(context, '5:00 PM', const TimeOfDay(hour: 17, minute: 0), _eventSelectedTime!, (time) {
+                      setModalState(() {
+                        _eventSelectedTime = time;
+                      });
+                    }),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.spacingL),
+              ],
+
+              // Category Selection
+              Text(
+                'Category',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: AppConstants.spacingM),
+              Wrap(
+                spacing: 8,
+                children: ['general', 'work', 'personal', 'meeting', 'appointment'].map((category) {
+                  final isSelected = _eventSelectedCategory == category;
+                  Color categoryColor;
+                  IconData categoryIcon;
+
+                  switch (category) {
+                    case 'work':
+                      categoryColor = Colors.blue;
+                      categoryIcon = Icons.work;
+                      break;
+                    case 'personal':
+                      categoryColor = Colors.green;
+                      categoryIcon = Icons.person;
+                      break;
+                    case 'meeting':
+                      categoryColor = Colors.orange;
+                      categoryIcon = Icons.groups;
+                      break;
+                    case 'appointment':
+                      categoryColor = Colors.purple;
+                      categoryIcon = Icons.schedule;
+                      break;
+                    default:
+                      categoryColor = Colors.grey;
+                      categoryIcon = Icons.event;
+                  }
+
+                  return FilterChip(
+                    avatar: Icon(
+                      categoryIcon,
+                      size: 16,
+                      color: isSelected
+                          ? Theme.of(context).colorScheme.onPrimaryContainer
+                          : categoryColor,
+                    ),
+                    label: Text(category.toUpperCase()),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      setModalState(() {
+                        _eventSelectedCategory = category;
+                      });
+                    },
+                    backgroundColor: categoryColor.withOpacity(0.1),
+                    selectedColor: Theme.of(context).colorScheme.primaryContainer,
+                    labelStyle: TextStyle(
+                      color: isSelected
+                          ? Theme.of(context).colorScheme.onPrimaryContainer
+                          : categoryColor,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: AppConstants.spacingL),
+
+              // Action Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        _resetEventFormState();
+                        Navigator.pop(context);
+                      },
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: AppConstants.spacingM),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () {
+                        if (_eventTitleController!.text.isNotEmpty) {
+                          final timeString = _eventIsAllDay!
+                              ? 'All Day'
+                              : _eventSelectedTime!.format(context);
+
+                          _saveEvent(
+                            _eventTitleController!.text,
+                            timeString,
+                            existingEvent,
+                          );
+
+                          _resetEventFormState();
+                          Navigator.pop(context);
+                        }
+                      },
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      child: Text(existingEvent == null ? 'Create' : 'Save'),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -739,39 +891,93 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
     );
   }
+  Future<void> _saveEvent(String title, String timeString, Map<String, dynamic>? existingEvent) async {
+    try {
+      final token = await _getFirebaseToken();
+      final selectedDate = _selectedDay ?? DateTime.now();
 
-  void _saveEvent(String title, String time, Map<String, dynamic>? existingEvent) {
-    final normalizedDate = _normalizeDate(_selectedDay ?? DateTime.now());
+      // Parse the time string properly
+      final timeOfDay = timeString == 'All Day'
+          ? const TimeOfDay(hour: 0, minute: 0)
+          : _parseTimeString(timeString);
 
-    setState(() {
-      _events[normalizedDate] = _events[normalizedDate] ?? [];
+      final startTime = timeString == 'All Day'
+          ? DateTime(selectedDate.year, selectedDate.month, selectedDate.day)
+          : DateTime(
+          selectedDate.year,
+          selectedDate.month,
+          selectedDate.day,
+          timeOfDay.hour,
+          timeOfDay.minute
+      );
+
+      final eventData = {
+        "title": title,
+        "description": "",
+        "start_time": startTime.toIso8601String(),
+        "category": "general",
+        "priority": "medium",
+      };
+
+      Response response;
 
       if (existingEvent == null) {
         // Create new event
-        _events[normalizedDate]!.add({
-          'title': title,
-          'time': time,
-          'type': 'work',
-          'color': Theme.of(context).colorScheme.primary,
-        });
+        response = await _dio.post(
+          '/api/events',
+          data: eventData,
+          options: Options(
+            headers: {
+              ...ApiConfig.defaultHeaders,
+              'Authorization': 'Bearer $token',
+            },
+          ),
+        );
       } else {
         // Update existing event
-        final index = _events[normalizedDate]!.indexOf(existingEvent);
-        if (index != -1) {
-          _events[normalizedDate]![index] = {
-            ...existingEvent,
-            'title': title,
-            'time': time,
-          };
+        final eventId = existingEvent['id'];
+        response = await _dio.put(
+          '/api/events/$eventId',
+          data: eventData,
+          options: Options(
+            headers: {
+              ...ApiConfig.defaultHeaders,
+              'Authorization': 'Bearer $token',
+            },
+          ),
+        );
+      }
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        await _loadEventsFromBackend();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(existingEvent == null ? 'Event created!' : 'Event updated!'),
+              backgroundColor: Colors.green,
+            ),
+          );
         }
       }
-    });
+
+    } catch (e) {
+      print('❌ Error saving event: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save event: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _handleEventAction(String action, Map<String, dynamic> event) {
     switch (action) {
       case 'edit':
-      // Use the same optimized bottom sheet for editing
+      // DON'T reset state for editing - preserve existing data
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
@@ -799,12 +1005,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () {
-              setState(() {
-                final normalizedDate = _normalizeDate(_selectedDay!);
-                _events[normalizedDate]?.remove(event);
-              });
-              Navigator.pop(context);
+            onPressed: () async {
+              Navigator.pop(context); // Close dialog first
+              await _deleteEventFromBackend(event);
             },
             style: TextButton.styleFrom(
               foregroundColor: Theme.of(context).colorScheme.error,
@@ -886,5 +1089,113 @@ class _CalendarScreenState extends State<CalendarScreen> {
       final formattedTime = picked.format(context);
       controller.text = formattedTime;
     }
+  }
+  Future<void> _deleteEventFromBackend(Map<String, dynamic> event) async {
+    try {
+      final token = await _getFirebaseToken();
+      final eventId = event['id'];
+
+      final response = await _dio.delete(
+        '/api/events/$eventId',
+        options: Options(
+          headers: {
+            ...ApiConfig.defaultHeaders,
+            'Authorization': 'Bearer $token',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        // Refresh events from backend
+        await _loadEventsFromBackend();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Event deleted!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+
+    } catch (e) {
+      print('❌ Error deleting event: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete event: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Helper method to parse time string
+  TimeOfDay _parseTimeString(String timeStr) {
+    try {
+      final timeParts = timeStr.split(':');
+      int hour = int.parse(timeParts[0]);
+      int minute = int.parse(timeParts[1].split(' ')[0]);
+
+      // Handle AM/PM
+      if (timeStr.toUpperCase().contains('PM') && hour != 12) {
+        hour += 12;
+      } else if (timeStr.toUpperCase().contains('AM') && hour == 12) {
+        hour = 0;
+      }
+
+      return TimeOfDay(hour: hour, minute: minute);
+    } catch (e) {
+      // Default fallback
+      return const TimeOfDay(hour: 10, minute: 0);
+    }
+  }
+
+  String _formatTimeFromDateTime(String dateTimeStr) {
+    try {
+      final dateTime = DateTime.parse(dateTimeStr);
+      return "${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}";
+    } catch (e) {
+      // Fallback for any parsing errors
+      return "00:00";
+    }
+  }
+
+  Widget _buildQuickTimeChip(BuildContext context, String label, TimeOfDay time, TimeOfDay selectedTime, Function(TimeOfDay) onTimeSelected) {
+    final isSelected = time.hour == selectedTime.hour && time.minute == selectedTime.minute;
+
+    return FilterChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: (selected) {
+        if (selected) {
+          onTimeSelected(time); // FIX: Call the callback properly
+        }
+      },
+      backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+      selectedColor: Theme.of(context).colorScheme.primary.withOpacity(0.2),
+      labelStyle: TextStyle(
+        color: isSelected
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).colorScheme.onSurfaceVariant,
+        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+      ),
+    );
+  }
+
+  void _resetEventFormState() {
+    _eventTitleController?.dispose();
+    _eventTitleController = null;
+    _eventSelectedTime = null;
+    _eventSelectedCategory = null;
+    _eventIsAllDay = null;
+  }
+
+  @override
+  void dispose() {
+    _eventTitleController?.dispose();
+    super.dispose();
   }
 }

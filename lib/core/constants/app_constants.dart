@@ -13,7 +13,7 @@ class AppConstants {
   static const Duration keyboardAnimation = Duration(milliseconds: 200);
 
   // Spacing
-  static const double spacingXXS = 2.0;
+  static const double spacingXXS = 1.0;
   static const double spacingXS = 4.0;
   static const double spacingS = 8.0;
   static const double spacingM = 16.0;

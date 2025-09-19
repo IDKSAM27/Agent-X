@@ -1,0 +1,60 @@
+agent-x-backend
+├── agent_memory.db
+├── agent_x.db
+├── chroma_db
+│   ├── 6db0dbee-8a23-445f-b52d-ffd2a14fbfed
+│   │   ├── data_level0.bin
+│   │   ├── header.bin
+│   │   ├── length.bin
+│   │   └── link_lists.bin
+│   ├── 9a666ec5-1db2-4086-9d54-71cd55794957
+│   │   ├── data_level0.bin
+│   │   ├── header.bin
+│   │   ├── length.bin
+│   │   └── link_lists.bin
+│   └── chroma.sqlite3
+├── database
+│   ├── __init__.py
+│   ├── operations.py
+│   └── __pycache__
+│       ├── __init__.cpython-313.pyc
+│       └── operations.cpython-313.pyc
+├── firebase-service-account.json
+├── functions
+│   ├── base.py
+│   ├── calendar_functions.py
+│   ├── __init__.py
+│   ├── memory_functions.py
+│   ├── __pycache__
+│   │   ├── base.cpython-313.pyc
+│   │   ├── calendar_functions.cpython-313.pyc
+│   │   ├── __init__.cpython-313.pyc
+│   │   ├── memory_functions.cpython-313.pyc
+│   │   └── task_functions.cpython-313.pyc
+│   └── task_functions.py
+├── llm
+│   ├── base.py
+│   ├── function_registry.py
+│   ├── gemini_client.py
+│   ├── __init__.py
+│   ├── __pycache__
+│   │   ├── base.cpython-313.pyc
+│   │   ├── function_registry.cpython-313.pyc
+│   │   ├── gemini_client.cpython-313.pyc
+│   │   └── __init__.cpython-313.pyc
+│   └── response_handler.py
+├── main.py
+├── memory_manager.py
+├── __pycache__
+│   ├── main.cpython-313.pyc
+│   └── memory_manager.cpython-313.pyc
+├── requirements.txt
+└── services
+    ├── auth_service.py
+    ├── __init__.py
+    ├── llm_service.py
+    └── __pycache__
+        ├── __init__.cpython-313.pyc
+        └── llm_service.cpython-313.pyc
+
+13 directories, 45 files
