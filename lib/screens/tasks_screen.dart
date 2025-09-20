@@ -8,7 +8,7 @@ import '../models/task_item.dart';
 import '../core/constants/app_constants.dart';
 
 class TasksScreen extends StatefulWidget {
-  final String? highlightTaskId; // NEW: Task ID to highlight
+  final String? highlightTaskId;
 
   const TasksScreen({super.key, this.highlightTaskId});
 
@@ -21,7 +21,22 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   String _selectedFilter = 'all';
   late TabController _tabController;
 
-  // NEW: Highlighting support
+  // NEW: Enhanced search and filtering
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  String _searchQuery = '';
+  bool _isSearchActive = false;
+
+  // Advanced filter options
+  List<String> _selectedPriorities = [];
+  List<String> _selectedCategories = [];
+  DateTimeRange? _selectedDateRange;
+  double _progressRangeStart = 0.0;
+  double _progressRangeEnd = 1.0;
+  String _sortBy = 'priority'; // priority, dueDate, title, progress
+  bool _sortAscending = false;
+
+  // Highlighting support (existing)
   final ScrollController _scrollController = ScrollController();
   String? _highlightedTaskId;
   late AnimationController _highlightAnimationController;
@@ -62,12 +77,126 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
 
   @override
   void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
     _tabController.dispose();
-    _scrollController.dispose(); // NEW: Dispose scroll controller
-    _highlightAnimationController.dispose(); // NEW: Dispose animation
+    _scrollController.dispose();
+    _highlightAnimationController.dispose();
     super.dispose();
   }
 
+  void _activateSearch() {
+    setState(() {
+      _isSearchActive = true;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _searchFocusNode.requestFocus();
+    });
+  }
+
+  void _exitSearch() {
+    setState(() {
+      _isSearchActive = false;
+      _searchQuery = '';
+      _sortBy = 'priority';
+    });
+    _searchController.clear();
+    _searchFocusNode.unfocus();
+  }
+
+  void _showAdvancedFilters() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          height: MediaQuery.of(context).size.height * 0.85,
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(AppConstants.radiusL),
+            ),
+          ),
+          child: Column(
+            children: [
+              // Handle bar
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(top: AppConstants.spacingM),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+
+              // Header
+              Padding(
+                padding: AppConstants.paddingM,
+                child: Row(
+                  children: [
+                    Text(
+                      'Advanced Filters',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () {
+                        setModalState(() {
+                          _clearAllFilters();
+                        });
+                        setState(() {});
+                      },
+                      child: const Text('Clear All'),
+                    ),
+                  ],
+                ),
+              ),
+
+              Expanded(
+                child: ListView(
+                  padding: AppConstants.paddingM,
+                  children: [
+                    _buildPriorityFilter(setModalState),
+                    const SizedBox(height: AppConstants.spacingL),
+
+                    _buildCategoryFilter(setModalState),
+                    const SizedBox(height: AppConstants.spacingL),
+
+                    _buildDateRangeFilter(setModalState),
+                    const SizedBox(height: AppConstants.spacingL),
+
+                    _buildProgressFilter(setModalState),
+                    const SizedBox(height: AppConstants.spacingL),
+
+                    _buildQuickFilters(setModalState),
+                  ],
+                ),
+              ),
+
+              // Apply button
+              Padding(
+                padding: AppConstants.paddingM,
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () {
+                      setState(() {}); // Apply filters
+                      Navigator.pop(context);
+                    },
+                    child: Text('Apply Filters (${_getActiveFilterCount()} active)'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   void _loadSampleTasks() {
     _loadTasksFromBackend();
@@ -196,9 +325,20 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   }
 
   List<TaskItem> get _filteredTasks {
-    List<TaskItem> filtered = _tasks;
+    List<TaskItem> filtered = List.from(_tasks);
 
-    // Filter by completion status
+    // 1. Search filter (highest priority)
+    if (_searchQuery.isNotEmpty) {
+      final query = _searchQuery.toLowerCase();
+      filtered = filtered.where((task) {
+        return task.title.toLowerCase().contains(query) ||
+            task.description.toLowerCase().contains(query) ||
+            task.category.toLowerCase().contains(query) ||
+            task.tags.any((tag) => tag.toLowerCase().contains(query));
+      }).toList();
+    }
+
+    // 2. Completion status filter
     switch (_selectedFilter) {
       case 'pending':
         filtered = filtered.where((task) => !task.isCompleted).toList();
@@ -208,34 +348,90 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
         break;
     }
 
-    // Filter by category
-    if (_selectedCategory != 'All') {
+    // 3. Priority filter
+    if (_selectedPriorities.isNotEmpty) {
       filtered = filtered.where((task) =>
-      task.category.toLowerCase() == _selectedCategory.toLowerCase()).toList();
+          _selectedPriorities.contains(task.priority)
+      ).toList();
     }
 
-    // Sort by priority and due date
-    filtered.sort((a, b) {
-      if (a.isCompleted != b.isCompleted) {
-        return a.isCompleted ? 1 : -1; // Completed tasks go to bottom
-      }
+    // 4. Category filter (enhanced)
+    if (_selectedCategories.isNotEmpty) {
+      filtered = filtered.where((task) =>
+          _selectedCategories.contains(task.category.toLowerCase())
+      ).toList();
+    } else if (_selectedCategory != 'All') {
+      // Legacy category filter
+      filtered = filtered.where((task) =>
+      task.category.toLowerCase() == _selectedCategory.toLowerCase()
+      ).toList();
+    }
 
-      // Sort by priority (high -> medium -> low)
-      final priorityOrder = {'high': 0, 'medium': 1, 'low': 2};
-      final priorityComparison = priorityOrder[a.priority]!.compareTo(
-          priorityOrder[b.priority]!);
+    // 5. Date range filter
+    if (_selectedDateRange != null) {
+      filtered = filtered.where((task) {
+        if (task.dueDate == null) return false;
+        return task.dueDate!.isAfter(_selectedDateRange!.start.subtract(const Duration(days: 1))) &&
+            task.dueDate!.isBefore(_selectedDateRange!.end.add(const Duration(days: 1)));
+      }).toList();
+    }
 
-      if (priorityComparison != 0) return priorityComparison;
+    // 6. Progress range filter
+    if (_progressRangeStart > 0.0 || _progressRangeEnd < 1.0) {
+      filtered = filtered.where((task) =>
+      task.progress >= _progressRangeStart && task.progress <= _progressRangeEnd
+      ).toList();
+    }
 
-      // Then by due date (sooner first)
-      if (a.dueDate != null && b.dueDate != null) {
-        return a.dueDate!.compareTo(b.dueDate!);
-      }
-
-      return 0;
-    });
+    // 7. Smart sorting
+    filtered.sort((a, b) => _compareTasksForSorting(a, b));
 
     return filtered;
+  }
+
+  int _compareTasksForSorting(TaskItem a, TaskItem b) {
+    // Completed tasks always go to bottom unless we're viewing completed tab
+    if (_selectedFilter != 'completed') {
+      if (a.isCompleted != b.isCompleted) {
+        return a.isCompleted ? 1 : -1;
+      }
+    }
+
+    int comparison = 0;
+
+    switch (_sortBy) {
+      case 'priority':
+        final priorityOrder = {'high': 0, 'medium': 1, 'low': 2};
+        comparison = priorityOrder[a.priority]!.compareTo(priorityOrder[b.priority]!);
+        break;
+      case 'dueDate':
+        if (a.dueDate != null && b.dueDate != null) {
+          comparison = a.dueDate!.compareTo(b.dueDate!);
+        } else if (a.dueDate != null) {
+          comparison = -1;
+        } else if (b.dueDate != null) {
+          comparison = 1;
+        }
+        break;
+      case 'title':
+        comparison = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+        break;
+      case 'progress':
+        comparison = a.progress.compareTo(b.progress);
+        break;
+      case 'relevance':
+      // When searching, prioritize matches in title over description
+        if (_searchQuery.isNotEmpty) {
+          final query = _searchQuery.toLowerCase();
+          final aTitleMatch = a.title.toLowerCase().contains(query);
+          final bTitleMatch = b.title.toLowerCase().contains(query);
+          if (aTitleMatch && !bTitleMatch) return -1;
+          if (!aTitleMatch && bTitleMatch) return 1;
+        }
+        break;
+    }
+
+    return _sortAscending ? comparison : -comparison;
   }
 
   @override
@@ -243,10 +439,18 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Tasks'),
+        title: _isSearchActive ? _buildSearchField() : const Text('Tasks'),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        bottom: TabBar(
+        leading: _isSearchActive
+            ? IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: _exitSearch,
+        )
+            : null,
+        bottom: _isSearchActive
+            ? null
+            : TabBar(
           controller: _tabController,
           onTap: (index) {
             setState(() {
@@ -259,16 +463,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
             Tab(text: 'Completed'),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: _showSearchDialog,
-          ),
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: _showFilterOptions,
-          ),
-        ],
+        actions: _buildAppBarActions(),
       ),
       floatingActionButton: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -292,7 +487,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           padding: EdgeInsets.zero,
           children: [
             _buildStatsCard().animate().slideY(begin: -0.2, duration: 400.ms),
-            _buildCategoryFilter().animate().slideX(begin: -0.2, duration: 500.ms),
+            _buildOriginalCategoryFilter().animate().slideX(begin: -0.2, duration: 500.ms),
             const SizedBox(height: 16),
             ..._filteredTasks.isEmpty
                 ? [_buildEmptyState()]
@@ -305,6 +500,372 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSearchField() {
+    return TextField(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      autofocus: true,
+      decoration: InputDecoration(
+        hintText: 'Search tasks, descriptions, tags...',
+        border: InputBorder.none,
+        hintStyle: TextStyle(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+      style: Theme.of(context).textTheme.titleMedium,
+      onChanged: (query) {
+        setState(() {
+          _searchQuery = query;
+          _sortBy = query.isEmpty ? 'priority' : 'relevance';
+        });
+      },
+    );
+  }
+
+  List<Widget> _buildAppBarActions() {
+    if (_isSearchActive) {
+      return [
+        if (_searchQuery.isNotEmpty)
+          IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: () {
+              _searchController.clear();
+              setState(() {
+                _searchQuery = '';
+                _sortBy = 'priority';
+              });
+            },
+          ),
+        IconButton(
+          icon: const Icon(Icons.tune),
+          onPressed: _showAdvancedFilters,
+        ),
+      ];
+    }
+
+    return [
+      IconButton(
+        icon: const Icon(Icons.search),
+        onPressed: _activateSearch,
+      ),
+      IconButton(
+        icon: const Icon(Icons.tune),
+        onPressed: _showAdvancedFilters,
+      ),
+      IconButton(
+        icon: const Icon(Icons.sort),
+        onPressed: _showSortOptions,
+      ),
+    ];
+  }
+
+  Widget _buildPriorityFilter(StateSetter setModalState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Priority',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: AppConstants.spacingM),
+        Wrap(
+          spacing: 8,
+          children: ['high', 'medium', 'low'].map((priority) {
+            final isSelected = _selectedPriorities.contains(priority);
+            Color priorityColor = priority == 'high'
+                ? Colors.red
+                : priority == 'medium'
+                ? Colors.orange
+                : Colors.green;
+
+            return FilterChip(
+              label: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: priorityColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(priority.toUpperCase()),
+                ],
+              ),
+              selected: isSelected,
+              onSelected: (selected) {
+                setModalState(() {
+                  if (selected) {
+                    _selectedPriorities.add(priority);
+                  } else {
+                    _selectedPriorities.remove(priority);
+                  }
+                });
+              },
+              backgroundColor: priorityColor.withOpacity(0.1),
+              selectedColor: priorityColor.withOpacity(0.2),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOriginalCategoryFilter() { // Rename this method
+    return Container(
+      height: 50,
+      margin: const EdgeInsets.symmetric(horizontal: AppConstants.spacingM),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: _categories.length,
+        itemBuilder: (context, index) {
+          final category = _categories[index];
+          final isSelected = _selectedCategory == category;
+
+          return Container(
+            margin: const EdgeInsets.only(right: AppConstants.spacingS),
+            child: FilterChip(
+              label: Text(category),
+              selected: isSelected,
+              onSelected: (selected) {
+                setState(() {
+                  _selectedCategory = category;
+                });
+              },
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              selectedColor: Theme.of(context).colorScheme.primaryContainer,
+              labelStyle: TextStyle(
+                color: isSelected
+                    ? Theme.of(context).colorScheme.onPrimaryContainer
+                    : Theme.of(context).colorScheme.onSurface,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildCategoryFilter(StateSetter setModalState) {
+    final allCategories = _tasks.map((t) => t.category.toLowerCase()).toSet().toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Categories',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: AppConstants.spacingM),
+        Wrap(
+          spacing: 8,
+          children: allCategories.map((category) {
+            final isSelected = _selectedCategories.contains(category);
+            final taskCount = _tasks.where((t) => t.category.toLowerCase() == category).length;
+
+            return FilterChip(
+              label: Text('$category ($taskCount)'),
+              selected: isSelected,
+              onSelected: (selected) {
+                setModalState(() {
+                  if (selected) {
+                    _selectedCategories.add(category);
+                  } else {
+                    _selectedCategories.remove(category);
+                  }
+                });
+              },
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDateRangeFilter(StateSetter setModalState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'Due Date Range',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            if (_selectedDateRange != null)
+              TextButton(
+                onPressed: () {
+                  setModalState(() {
+                    _selectedDateRange = null;
+                  });
+                },
+                child: const Text('Clear'),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppConstants.spacingM),
+        OutlinedButton.icon(
+          onPressed: () async {
+            final DateTimeRange? picked = await showDateRangePicker(
+              context: context,
+              firstDate: DateTime.now().subtract(const Duration(days: 365)),
+              lastDate: DateTime.now().add(const Duration(days: 365)),
+              initialDateRange: _selectedDateRange,
+            );
+
+            if (picked != null) {
+              setModalState(() {
+                _selectedDateRange = picked;
+              });
+            }
+          },
+          icon: const Icon(Icons.date_range),
+          label: Text(_selectedDateRange == null
+              ? 'Select Date Range'
+              : '${_selectedDateRange!.start.day}/${_selectedDateRange!.start.month} - ${_selectedDateRange!.end.day}/${_selectedDateRange!.end.month}'
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProgressFilter(StateSetter setModalState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Progress Range: ${(_progressRangeStart * 100).round()}% - ${(_progressRangeEnd * 100).round()}%',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: AppConstants.spacingM),
+        RangeSlider(
+          values: RangeValues(_progressRangeStart, _progressRangeEnd),
+          onChanged: (RangeValues values) {
+            setModalState(() {
+              _progressRangeStart = values.start;
+              _progressRangeEnd = values.end;
+            });
+          },
+          divisions: 10,
+          labels: RangeLabels(
+            '${(_progressRangeStart * 100).round()}%',
+            '${(_progressRangeEnd * 100).round()}%',
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickFilters(StateSetter setModalState) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Quick Filters',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: AppConstants.spacingM),
+        Wrap(
+          spacing: 8,
+          children: [
+            _buildQuickFilterChip('Overdue', Icons.warning, Colors.red, () {
+              setModalState(() {
+                _selectedDateRange = DateTimeRange(
+                  start: DateTime(2020, 1, 1),
+                  end: DateTime.now(),
+                );
+              });
+            }),
+            _buildQuickFilterChip('Due Today', Icons.today, Colors.orange, () {
+              final today = DateTime.now();
+              setModalState(() {
+                _selectedDateRange = DateTimeRange(
+                  start: DateTime(today.year, today.month, today.day),
+                  end: DateTime(today.year, today.month, today.day, 23, 59),
+                );
+              });
+            }),
+            _buildQuickFilterChip('This Week', Icons.view_week, Colors.blue, () {
+              final now = DateTime.now();
+              final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+              setModalState(() {
+                _selectedDateRange = DateTimeRange(
+                  start: startOfWeek,
+                  end: startOfWeek.add(const Duration(days: 6)),
+                );
+              });
+            }),
+            _buildQuickFilterChip('High Priority', Icons.priority_high, Colors.red, () {
+              setModalState(() {
+                _selectedPriorities = ['high'];
+              });
+            }),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickFilterChip(String label, IconData icon, Color color, VoidCallback onTap) {
+    return ActionChip(
+      avatar: Icon(icon, size: 16, color: color),
+      label: Text(label),
+      onPressed: onTap,
+      backgroundColor: color.withOpacity(0.1),
+      labelStyle: TextStyle(color: color, fontWeight: FontWeight.w500),
+    );
+  }
+
+  Widget _buildSortOption(String title, String sortKey) {
+    final isSelected = _sortBy == sortKey;
+
+    return ListTile(
+      title: Text(title),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isSelected) ...[
+            IconButton(
+              icon: Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward),
+              onPressed: () {
+                setState(() {
+                  _sortAscending = !_sortAscending;
+                });
+                Navigator.pop(context);
+              },
+            ),
+            const Icon(Icons.check, color: Colors.green),
+          ],
+        ],
+      ),
+      onTap: () {
+        setState(() {
+          if (_sortBy == sortKey) {
+            _sortAscending = !_sortAscending;
+          } else {
+            _sortBy = sortKey;
+            _sortAscending = false;
+          }
+        });
+        Navigator.pop(context);
+      },
     );
   }
 
@@ -465,54 +1026,6 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildCategoryFilter() {
-    return Container(
-      height: 50,
-      margin: const EdgeInsets.symmetric(horizontal: AppConstants.spacingM),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        itemCount: _categories.length,
-        itemBuilder: (context, index) {
-          final category = _categories[index];
-          final isSelected = _selectedCategory == category;
-
-          return Container(
-            margin: const EdgeInsets.only(right: AppConstants.spacingS),
-            child: FilterChip(
-              label: Text(category),
-              selected: isSelected,
-              onSelected: (selected) {
-                setState(() {
-                  _selectedCategory = category;
-                });
-              },
-              backgroundColor: Theme
-                  .of(context)
-                  .colorScheme
-                  .surface,
-              selectedColor: Theme
-                  .of(context)
-                  .colorScheme
-                  .primaryContainer,
-              labelStyle: TextStyle(
-                color: isSelected
-                    ? Theme
-                    .of(context)
-                    .colorScheme
-                    .onPrimaryContainer
-                    : Theme
-                    .of(context)
-                    .colorScheme
-                    .onSurface,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          );
-        },
       ),
     );
   }
@@ -802,6 +1315,31 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     ).animate(delay: (index * 100).ms).slideX(begin: 0.2).fadeIn();
   }
 
+  void _showSortOptions() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sort Tasks'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildSortOption('Priority', 'priority'),
+            _buildSortOption('Due Date', 'dueDate'),
+            _buildSortOption('Title (A-Z)', 'title'),
+            _buildSortOption('Progress', 'progress'),
+            if (_searchQuery.isNotEmpty)
+              _buildSortOption('Relevance', 'relevance'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 
   // Task Actions
   void _toggleTaskCompletion(TaskItem task) async {
@@ -1655,6 +2193,22 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
             ),
           ),
     );
+  }
+
+  void _clearAllFilters() {
+    _selectedPriorities.clear();
+    _selectedCategories.clear();
+    _selectedDateRange = null;
+    _progressRangeStart = 0.0;
+    _progressRangeEnd = 1.0;
+  }
+  int _getActiveFilterCount() {
+    int count = 0;
+    if (_selectedPriorities.isNotEmpty) count++;
+    if (_selectedCategories.isNotEmpty) count++;
+    if (_selectedDateRange != null) count++;
+    if (_progressRangeStart > 0.0 || _progressRangeEnd < 1.0) count++;
+    return count;
   }
 }
 
