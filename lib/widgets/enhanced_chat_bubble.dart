@@ -194,6 +194,7 @@ class EnhancedChatBubble extends StatelessWidget {
     List<Widget> buttons = [];
     if (meta['show_action_button'] == true) {
       // Task navigation
+      // In _buildActionButtons method of EnhancedChatBubble
       if (meta['type'] == 'task' && (meta['action'] == 'task_created' || meta['action'] == 'tasks_listed')) {
         buttons.add(
           Padding(
@@ -201,7 +202,11 @@ class EnhancedChatBubble extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: () {
                 Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const TasksScreen())
+                  MaterialPageRoute(
+                    builder: (_) => TasksScreen(
+                      highlightTaskId: meta['task_id']?.toString(), // Pass task ID
+                    ),
+                  ),
                 );
               },
               icon: const Icon(Icons.task_alt),
@@ -217,6 +222,7 @@ class EnhancedChatBubble extends StatelessWidget {
           ),
         );
       }
+
       // Calendar navigation
       if (meta['type'] == 'calendar' && (meta['action'] == 'event_created' || meta['action'] == 'events_listed')) {
         buttons.add(

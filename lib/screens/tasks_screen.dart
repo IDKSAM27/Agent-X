@@ -8,7 +8,9 @@ import '../models/task_item.dart';
 import '../core/constants/app_constants.dart';
 
 class TasksScreen extends StatefulWidget {
-  const TasksScreen({super.key});
+  final String? highlightTaskId; // NEW: Task ID to highlight
+
+  const TasksScreen({super.key, this.highlightTaskId});
 
   @override
   State<TasksScreen> createState() => _TasksScreenState();
@@ -16,8 +18,14 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin {
   List<TaskItem> _tasks = [];
-  String _selectedFilter = 'all'; // all, pending, completed
+  String _selectedFilter = 'all';
   late TabController _tabController;
+
+  // NEW: Highlighting support
+  final ScrollController _scrollController = ScrollController();
+  String? _highlightedTaskId;
+  late AnimationController _highlightAnimationController;
+  late Animation<double> _highlightAnimation;
 
   final Dio _dio = Dio(BaseOptions(
     baseUrl: ApiConfig.baseUrl,
@@ -32,14 +40,34 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+
+    // NEW: Initialize highlight animation
+    _highlightAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    _highlightAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _highlightAnimationController,
+      curve: Curves.easeInOut,
+    ));
+
+    // Set initial highlight task
+    _highlightedTaskId = widget.highlightTaskId;
+
     _loadSampleTasks();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _scrollController.dispose(); // NEW: Dispose scroll controller
+    _highlightAnimationController.dispose(); // NEW: Dispose animation
     super.dispose();
   }
+
 
   void _loadSampleTasks() {
     _loadTasksFromBackend();
@@ -47,7 +75,6 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
 
   Future<void> _loadTasksFromBackend() async {
     try {
-      // Call your backend to get tasks
       final response = await _dio.get(
         '/api/tasks',
         options: Options(
@@ -82,10 +109,14 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
         });
 
         print('✅ Loaded ${_tasks.length} tasks from backend');
+
+        // NEW: Auto-scroll and highlight after data loads
+        if (_highlightedTaskId != null) {
+          _scrollToHighlightedTask();
+        }
       }
     } catch (e) {
       print('❌ Error loading tasks: $e');
-      // Keep the sample tasks as fallback
       _loadSampleTasksFallback();
     }
   }
@@ -98,6 +129,50 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       print('❌ Error getting Firebase token: $e');
       return null;
     }
+  }
+
+  void _scrollToHighlightedTask() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_highlightedTaskId == null) return;
+
+      final filteredTasks = _filteredTasks;
+      final targetIndex = filteredTasks.indexWhere((task) => task.id == _highlightedTaskId);
+
+      if (targetIndex == -1) {
+        print('⚠️ Task with ID $_highlightedTaskId not found in current filter');
+        return;
+      }
+
+      // Calculate scroll position
+      // Account for: stats card (100px) + category filter (70px) + spacing (16px) + task cards
+      const double statsCardHeight = 100.0;
+      const double categoryFilterHeight = 70.0;
+      const double spacing = 16.0;
+      const double taskCardHeight = 120.0; // Approximate task card height
+
+      final double scrollOffset = statsCardHeight + categoryFilterHeight + spacing +
+          (targetIndex * (taskCardHeight + AppConstants.spacingM));
+
+      // Scroll to the task
+      if (_scrollController.hasClients) {
+        await _scrollController.animateTo(
+          scrollOffset,
+          duration: const Duration(milliseconds: 800),
+          curve: Curves.easeInOut,
+        );
+
+        // Start highlight animation after scrolling
+        await Future.delayed(const Duration(milliseconds: 200));
+        _highlightAnimationController.forward();
+
+        // Clear highlight after animation
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          setState(() {
+            _highlightedTaskId = null;
+          });
+        });
+      }
+    });
   }
 
 // Keep sample tasks as fallback
@@ -166,10 +241,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Theme
-          .of(context)
-          .colorScheme
-          .surface,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
         title: const Text('Tasks'),
         backgroundColor: Colors.transparent,
@@ -215,26 +287,21 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       body: RefreshIndicator(
         onRefresh: _loadTasksFromBackend,
         child: ListView(
+          controller: _scrollController, // NEW: Add scroll controller
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
           children: [
             _buildStatsCard().animate().slideY(begin: -0.2, duration: 400.ms),
             _buildCategoryFilter().animate().slideX(begin: -0.2, duration: 500.ms),
-            // Instead of Expanded, just insert the widgets
-            SizedBox(
-              height: 16,
-            ),
+            const SizedBox(height: 16),
             ..._filteredTasks.isEmpty
                 ? [_buildEmptyState()]
                 : _filteredTasks
                 .asMap()
                 .entries
-                .map((entry) =>
-                _buildTaskCard(entry.value, entry.key))
+                .map((entry) => _buildTaskCard(entry.value, entry.key))
                 .toList(),
-            SizedBox(
-              height: 100, // Padding for FAB
-            ),
+            const SizedBox(height: 100),
           ],
         ),
       ),
@@ -525,232 +592,216 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   }
 
   Widget _buildTaskCard(TaskItem task, int index) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
-      elevation: 0,
-      child: InkWell(
-        onTap: () => _showTaskDetails(task),
-        borderRadius: BorderRadius.circular(AppConstants.radiusM),
-        child: Padding(
-          padding: AppConstants.cardPadding,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Task header
-              Row(
-                children: [
-                  // Priority indicator
-                  Container(
-                    width: 4,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: task.priorityColor,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: AppConstants.spacingM),
+    final isHighlighted = task.id == _highlightedTaskId;
 
-                  // Task content
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                task.title,
-                                style: Theme
-                                    .of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  decoration: task.isCompleted
-                                      ? TextDecoration.lineThrough
-                                      : null,
-                                  color: task.isCompleted
-                                      ? Theme
-                                      .of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant
-                                      : null,
+    return AnimatedBuilder(
+      animation: _highlightAnimation,
+      builder: (context, child) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
+          decoration: isHighlighted
+              ? BoxDecoration(
+            borderRadius: BorderRadius.circular(AppConstants.radiusM),
+            boxShadow: [
+              BoxShadow(
+                color: Theme.of(context).colorScheme.primary.withOpacity(
+                  0.3 * _highlightAnimation.value,
+                ),
+                blurRadius: 20 * _highlightAnimation.value,
+                spreadRadius: 2 * _highlightAnimation.value,
+              ),
+            ],
+          )
+              : null,
+          child: Card(
+            elevation: isHighlighted ? 4 * _highlightAnimation.value : 0,
+            child: InkWell(
+              onTap: () => _showTaskDetails(task),
+              borderRadius: BorderRadius.circular(AppConstants.radiusM),
+              child: Container(
+                decoration: isHighlighted
+                    ? BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary.withOpacity(
+                      0.6 * _highlightAnimation.value,
+                    ),
+                    width: 2 * _highlightAnimation.value,
+                  ),
+                )
+                    : null,
+                child: Padding(
+                  padding: AppConstants.cardPadding,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Task header
+                      Row(
+                        children: [
+                          // Priority indicator
+                          Container(
+                            width: 4,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: task.priorityColor,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const SizedBox(width: AppConstants.spacingM),
+
+                          // Task content
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        task.title,
+                                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                          decoration: task.isCompleted
+                                              ? TextDecoration.lineThrough
+                                              : null,
+                                          color: task.isCompleted
+                                              ? Theme.of(context).colorScheme.onSurfaceVariant
+                                              : null,
+                                        ),
+                                      ),
+                                    ),
+                                    // Completion checkbox
+                                    Checkbox(
+                                      value: task.isCompleted,
+                                      onChanged: (value) => _toggleTaskCompletion(task),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (task.description.isNotEmpty)
+                                  Text(
+                                    task.description,
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                              ],
+                            ),
+                          ),
+
+                          // More options
+                          PopupMenuButton(
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(
+                                value: 'edit',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.edit, size: 20),
+                                    SizedBox(width: 12),
+                                    Text('Edit'),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.delete, size: 20, color: Colors.red),
+                                    SizedBox(width: 12),
+                                    Text('Delete', style: TextStyle(color: Colors.red)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            onSelected: (value) => _handleTaskAction(value as String, task),
+                          ),
+                        ],
+                      ),
+
+                      // Task metadata (rest of your existing code...)
+                      const SizedBox(height: AppConstants.spacingM),
+                      Row(
+                        children: [
+                          // Category chip and other metadata...
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: task.priorityColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              task.category,
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: task.priorityColor,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(width: AppConstants.spacingM),
+
+                          // Due date
+                          if (task.dueDate != null) ...[
+                            Icon(
+                              Icons.schedule,
+                              size: 16,
+                              color: task.isOverdue
+                                  ? Theme.of(context).colorScheme.error
+                                  : Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: AppConstants.spacingS),
+                            Text(
+                              task.dueStatus,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: task.isOverdue
+                                    ? Theme.of(context).colorScheme.error
+                                    : Theme.of(context).colorScheme.onSurfaceVariant,
+                                fontWeight: task.isOverdue ? FontWeight.w600 : null,
+                              ),
+                            ),
+                          ],
+
+                          const Spacer(),
+
+                          // Progress indicator
+                          if (task.progress > 0 && !task.isCompleted) ...[
+                            Text(
+                              '${(task.progress * 100).round()}%',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: AppConstants.spacingS),
+                            SizedBox(
+                              width: 40,
+                              height: 4,
+                              child: LinearProgressIndicator(
+                                value: task.progress,
+                                backgroundColor: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Theme.of(context).colorScheme.primary,
                                 ),
                               ),
                             ),
-                            // Completion checkbox
-                            Checkbox(
-                              value: task.isCompleted,
-                              onChanged: (value) => _toggleTaskCompletion(task),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
                           ],
-                        ),
-                        if (task.description.isNotEmpty)
-                          Text(
-                            task.description,
-                            style: Theme
-                                .of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(
-                              color: Theme
-                                  .of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-                    ),
-                  ),
-
-                  // More options
-                  PopupMenuButton(
-                    itemBuilder: (context) =>
-                    [
-                      const PopupMenuItem(
-                        value: 'edit',
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit, size: 20),
-                            SizedBox(width: 12),
-                            Text('Edit'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete, size: 20, color: Colors.red),
-                            SizedBox(width: 12),
-                            Text('Delete', style: TextStyle(color: Colors.red)),
-                          ],
-                        ),
+                        ],
                       ),
                     ],
-                    onSelected: (value) =>
-                        _handleTaskAction(value as String, task),
                   ),
-                ],
+                ),
               ),
-
-              // Task metadata
-              const SizedBox(height: AppConstants.spacingM),
-              Row(
-                children: [
-                  // Category chip
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: task.priorityColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      task.category,
-                      style: Theme
-                          .of(context)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(
-                        color: task.priorityColor,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(width: AppConstants.spacingM),
-
-                  // Due date
-                  if (task.dueDate != null) ...[
-                    Icon(
-                      Icons.schedule,
-                      size: 16,
-                      color: task.isOverdue
-                          ? Theme
-                          .of(context)
-                          .colorScheme
-                          .error
-                          : Theme
-                          .of(context)
-                          .colorScheme
-                          .onSurfaceVariant,
-                    ),
-                    const SizedBox(width: AppConstants.spacingS),
-                    Text(
-                      task.dueStatus,
-                      style: Theme
-                          .of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(
-                        color: task.isOverdue
-                            ? Theme
-                            .of(context)
-                            .colorScheme
-                            .error
-                            : Theme
-                            .of(context)
-                            .colorScheme
-                            .onSurfaceVariant,
-                        fontWeight: task.isOverdue ? FontWeight.w600 : null,
-                      ),
-                    ),
-                  ],
-
-                  const Spacer(),
-
-                  // Progress indicator
-                  if (task.progress > 0 && !task.isCompleted) ...[
-                    Text(
-                      '${(task.progress * 100).round()}%',
-                      style: Theme
-                          .of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(
-                        color: Theme
-                            .of(context)
-                            .colorScheme
-                            .primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: AppConstants.spacingS),
-                    SizedBox(
-                      width: 40,
-                      height: 4,
-                      child: LinearProgressIndicator(
-                        value: task.progress,
-                        backgroundColor: Theme
-                            .of(context)
-                            .colorScheme
-                            .outline
-                            .withOpacity(0.2),
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Theme
-                              .of(context)
-                              .colorScheme
-                              .primary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     ).animate(delay: (index * 100).ms).slideX(begin: 0.2).fadeIn();
   }
+
 
   // Task Actions
   void _toggleTaskCompletion(TaskItem task) async {
