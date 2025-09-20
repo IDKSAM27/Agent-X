@@ -4,6 +4,8 @@ import '../models/chat_message.dart';
 import '../core/constants/app_constants.dart';
 import 'typing_indicator.dart';
 import 'calendar_response_card.dart';
+import '../screens/tasks_screen.dart';
+import '../screens/calendar_screen.dart';
 
 class EnhancedChatBubble extends StatelessWidget {
   final ChatMessage message;
@@ -32,7 +34,6 @@ class EnhancedChatBubble extends StatelessWidget {
         children: [
           if (!isUser && showAvatar) _buildAvatar(context),
           if (!isUser && showAvatar) const SizedBox(width: AppConstants.spacingS),
-
           Flexible(
             child: Container(
               constraints: BoxConstraints(
@@ -55,8 +56,10 @@ class EnhancedChatBubble extends StatelessWidget {
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(AppConstants.radiusL),
                   topRight: const Radius.circular(AppConstants.radiusL),
-                  bottomLeft: Radius.circular(isUser ? AppConstants.radiusL : AppConstants.radiusS),
-                  bottomRight: Radius.circular(isUser ? AppConstants.radiusS : AppConstants.radiusL),
+                  bottomLeft:
+                  Radius.circular(isUser ? AppConstants.radiusL : AppConstants.radiusS),
+                  bottomRight:
+                  Radius.circular(isUser ? AppConstants.radiusS : AppConstants.radiusL),
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -72,14 +75,16 @@ class EnhancedChatBubble extends StatelessWidget {
                   if (message.isTyping)
                     const TypingIndicator()
                   else
-                    _buildMessageContent(context, isUser), // Fixed method
+                    _buildMessageContent(context, isUser), // Chat content + calendar support
+
+                  // ACTION BUTTONS: View in Tasks/Calendar (below the message content)
+                  if (!isUser && message.metadata != null) ..._buildActionButtons(context, message.metadata!),
 
                   _buildMessageFooter(context, isUser),
                 ],
               ),
             ),
           ),
-
           if (isUser && showAvatar) const SizedBox(width: AppConstants.spacingS),
           if (isUser && showAvatar) _buildUserAvatar(context),
         ],
@@ -138,7 +143,6 @@ class EnhancedChatBubble extends StatelessWidget {
     );
   }
 
-  // Fixed message content method with calendar support
   Widget _buildMessageContent(BuildContext context, bool isUser) {
     if (!isUser && message.metadata != null && message.metadata!['type'] == 'calendar') {
       return Column(
@@ -160,12 +164,12 @@ class EnhancedChatBubble extends StatelessWidget {
             ),
           ),
           if (message.metadata!['show_calendar'] == true)
-            CalendarResponseCard(metadata: message.metadata!), // Now works, it was a bitchful of debugging
+            CalendarResponseCard(metadata: message.metadata!),
         ],
       );
     }
 
-    // Default text content
+    // Default: just show text
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppConstants.spacingM,
@@ -183,6 +187,62 @@ class EnhancedChatBubble extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  // --- ACTION BUTTON GENERATOR ---
+  List<Widget> _buildActionButtons(BuildContext context, Map<String, dynamic> meta) {
+    List<Widget> buttons = [];
+    if (meta['show_action_button'] == true) {
+      // Task navigation
+      if (meta['type'] == 'task' && (meta['action'] == 'task_created' || meta['action'] == 'tasks_listed')) {
+        buttons.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingM),
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const TasksScreen())
+                );
+              },
+              icon: const Icon(Icons.task_alt),
+              label: const Text('View in Tasks'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+                minimumSize: const Size.fromHeight(40),
+                textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                elevation: 0,
+              ),
+            ),
+          ),
+        );
+      }
+      // Calendar navigation
+      if (meta['type'] == 'calendar' && (meta['action'] == 'event_created' || meta['action'] == 'events_listed')) {
+        buttons.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingM),
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const CalendarScreen())
+                );
+              },
+              icon: const Icon(Icons.calendar_today),
+              label: const Text('View in Calendar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+                minimumSize: const Size.fromHeight(40),
+                textStyle: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                elevation: 0,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    return buttons;
   }
 
   Widget _buildMessageFooter(BuildContext context, bool isUser) {

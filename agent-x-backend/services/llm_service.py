@@ -46,13 +46,17 @@ class LLMService:
 
             # Handle function calls if any
             if llm_response.function_calls:
-                final_response = await self._execute_functions(
+                final_response, executed_functions = await self._execute_functions(
                     firebase_uid,
                     llm_response.function_calls,
                     messages
                 )
+
+                # NEW: Build navigation metadata based on executed functions
+                navigation_metadata = self._build_navigation_metadata(executed_functions)
             else:
                 final_response = llm_response.content
+                navigation_metadata = {}
 
             return {
                 "agent_name": "LLMAgent",
@@ -61,7 +65,8 @@ class LLMService:
                 "metadata": {
                     "llm_provider": "gemini",
                     "function_calls_made": len(llm_response.function_calls),
-                    **llm_response.metadata
+                    **llm_response.metadata,
+                    **navigation_metadata  # Include navigation metadata
                 },
                 "suggested_actions": self._generate_suggestions(message),
                 "requires_follow_up": False
@@ -70,6 +75,50 @@ class LLMService:
         except Exception as e:
             logger.error(f"❌ LLM Service error: {e}")
             return self._fallback_response(str(e))
+
+    def _build_navigation_metadata(self, executed_functions: List[Dict]) -> Dict[str, Any]:
+        """Build navigation metadata based on executed functions"""
+        metadata = {}
+
+        for func_data in executed_functions:
+            function_name = func_data["name"]
+            result_data = func_data["result"]
+
+            # Calendar functions
+            if function_name == "create_event" and result_data.get("success"):
+                metadata.update({
+                    "type": "calendar",
+                    "action": "event_created",
+                    "show_action_button": True,
+                    "event_id": result_data.get("data", {}).get("event_id"),
+                    "event_title": result_data.get("data", {}).get("title"),
+                })
+            elif function_name == "get_events" and result_data.get("success"):
+                metadata.update({
+                    "type": "calendar",
+                    "action": "events_listed",
+                    "show_action_button": True,
+                    "event_count": len(result_data.get("data", {}).get("events", []))
+                })
+
+            # Task functions
+            elif function_name == "create_task" and result_data.get("success"):
+                metadata.update({
+                    "type": "task",
+                    "action": "task_created",
+                    "show_action_button": True,
+                    "task_id": result_data.get("data", {}).get("task_id"),
+                    "task_title": result_data.get("data", {}).get("title"),
+                })
+            elif function_name == "get_tasks" and result_data.get("success"):
+                metadata.update({
+                    "type": "task",
+                    "action": "tasks_listed",
+                    "show_action_button": True,
+                    "task_count": len(result_data.get("data", {}).get("tasks", []))
+                })
+
+        return metadata
 
     def _build_system_prompt(self, profession: str, context: str) -> str:
         """Build system prompt with user context"""
@@ -98,20 +147,18 @@ Be conversational and helpful. Reference their profession when relevant."""
         return base_prompt
 
 
-    async def _execute_functions(self, firebase_uid: str, function_calls: List[Dict], messages: List[Dict]) -> str:
+    async def _execute_functions(self, firebase_uid: str, function_calls: List[Dict], messages: List[Dict]) -> tuple[str, List[Dict]]:
         """Execute function calls and generate final response"""
         function_results = []
+        executed_functions = []  # NEW: Track executed functions
 
         logger.info(f"🔧 Executing {len(function_calls)} function calls")
 
-        # In the _execute_functions method, add this debug logging:
         for func_call in function_calls:
             name = func_call["name"]
             arguments = func_call["arguments"]
 
             logger.info(f"🔧 Executing function: {name} with args: {arguments}")
-
-            # Add this debug line:
             logger.info(f"🔍 Function name '{name}' - checking routing...")
 
             # Execute function based on name
@@ -130,6 +177,11 @@ Be conversational and helpful. Reference their profession when relevant."""
                     logger.warning(f"⚠️ Unknown function called: {name}")
 
                 function_results.append({"function": name, "result": result})
+
+                # NEW: Track successful executions for metadata
+                if result.get("success"):
+                    executed_functions.append({"name": name, "result": result})
+
                 logger.info(f"✅ Function {name} executed: {result}")
 
             except Exception as func_error:
@@ -137,7 +189,10 @@ Be conversational and helpful. Reference their profession when relevant."""
                 function_results.append({"function": name, "result": {"error": str(func_error)}})
 
         # Generate natural response with LLM based on function results
-        return await self._generate_natural_response(function_results, messages)
+        response = await self._generate_natural_response(function_results, messages)
+
+        return response, executed_functions  # ✅ Return both response and executed functions
+
 
     async def _generate_natural_response(self, function_results: List[Dict], original_messages: List[Dict]) -> str:
         """Generate a natural response based on function execution results"""
@@ -145,12 +200,21 @@ Be conversational and helpful. Reference their profession when relevant."""
         successful_messages = []
         error_messages = []
 
+        # NEW: Track executed functions for metadata
+        executed_functions = []
+
         # Extract the actual messages from successful function calls
         for func_result in function_results:
             function_name = func_result["function"]
             result_data = func_result["result"]
 
             if result_data.get("success", False):
+                # NEW: Track successful function execution
+                executed_functions.append({
+                    "name": function_name,
+                    "result": result_data
+                })
+
                 # Use the actual message from the function, not a generic one
                 function_message = result_data.get("message", "")
                 if function_message:
@@ -181,7 +245,6 @@ Be conversational and helpful. Reference their profession when relevant."""
             return f"I've completed multiple actions for you:\n\n{combined_message}"
 
         return combined_message
-
 
 
     def _generate_suggestions(self, message: str) -> List[str]:
