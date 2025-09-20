@@ -1,6 +1,6 @@
 {
-    "name": "agent_x_assistant",
-    "short_name": "agent_x_assistant",
+    "name": "AgentX",
+    "short_name": "AgentX",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
