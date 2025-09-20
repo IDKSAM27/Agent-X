@@ -7,22 +7,31 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../core/config/api_config.dart';
 
 class CalendarScreen extends StatefulWidget {
-  const CalendarScreen({super.key});
+  final String? highlightEventId; // NEW: Event ID to highlight
+  final DateTime? highlightDate; // NEW: Optional date to focus on
+
+  const CalendarScreen({super.key, this.highlightEventId, this.highlightDate});
 
   @override
   State<CalendarScreen> createState() => _CalendarScreenState();
 }
 
-class _CalendarScreenState extends State<CalendarScreen> {
+class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStateMixin {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.month;
 
-  // ADD: Event form state variables
+  // Event form state variables
   TextEditingController? _eventTitleController;
   TimeOfDay? _eventSelectedTime;
   String? _eventSelectedCategory;
   bool? _eventIsAllDay;
+
+  // NEW: Highlighting support
+  final ScrollController _eventsScrollController = ScrollController();
+  String? _highlightedEventId;
+  late AnimationController _highlightAnimationController;
+  late Animation<double> _highlightAnimation;
 
   final Dio _dio = Dio(BaseOptions(
     baseUrl: ApiConfig.baseUrl,
@@ -32,15 +41,46 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   var logger = Logger();
 
-  // Sample events data (we'll replace with database later)
+  // Sample events data
   final Map<DateTime, List<Map<String, dynamic>>> _events = {};
 
   @override
   void initState() {
     super.initState();
-    _selectedDay = DateTime.now();
-    // _loadSampleEvents();
+
+    // NEW: Initialize highlight animation
+    _highlightAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    _highlightAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _highlightAnimationController,
+      curve: Curves.easeInOut,
+    ));
+
+    // NEW: Set initial highlight event and date
+    _highlightedEventId = widget.highlightEventId;
+
+    // Set initial selected day and focused day
+    if (widget.highlightDate != null) {
+      _selectedDay = widget.highlightDate;
+      _focusedDay = widget.highlightDate!;
+    } else {
+      _selectedDay = DateTime.now();
+    }
+
     _loadEventsFromBackend();
+  }
+
+  @override
+  void dispose() {
+    _eventTitleController?.dispose();
+    _eventsScrollController.dispose(); // NEW: Dispose scroll controller
+    _highlightAnimationController.dispose(); // NEW: Dispose animation
+    super.dispose();
   }
 
   Future<TimeOfDay?> _showEnhancedTimePicker(BuildContext context, TimeOfDay initialTime) async {
@@ -95,7 +135,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             final date = DateTime.parse(e['start_time']);
             final normalized = DateTime(date.year, date.month, date.day);
             final eventMap = {
-              'id': e['id'], // Include ID for CRUD operations
+              'id': e['id'], // Include ID for highlighting
               'title': e['title'],
               'description': e['description'],
               'time': _formatTimeFromDateTime(e['start_time']),
@@ -105,12 +145,86 @@ class _CalendarScreenState extends State<CalendarScreen> {
             _events[normalized] = (_events[normalized] ?? [])..add(eventMap);
           }
         });
+
+        print('✅ Loaded ${_events.values.expand((e) => e).length} events from backend');
+
+        // NEW: Auto-scroll and highlight after data loads
+        if (_highlightedEventId != null) {
+          _scrollToHighlightedEvent();
+        }
       }
     } catch (e) {
       print('❌ Error loading events: $e');
     }
   }
 
+  void _scrollToHighlightedEvent() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (_highlightedEventId == null) return;
+
+      // Find the event and its date
+      DateTime? eventDate;
+      Map<String, dynamic>? targetEvent;
+
+      for (final entry in _events.entries) {
+        final foundEvent = entry.value.firstWhere(
+              (event) => event['id'].toString() == _highlightedEventId,
+          orElse: () => {},
+        );
+        if (foundEvent.isNotEmpty) {
+          eventDate = entry.key;
+          targetEvent = foundEvent;
+          break;
+        }
+      }
+
+      if (eventDate == null || targetEvent == null) {
+        print('⚠️ Event with ID $_highlightedEventId not found');
+        return;
+      }
+
+      // NEW: Update selected day to show the event
+      setState(() {
+        _selectedDay = eventDate;
+        _focusedDay = eventDate!;
+      });
+
+      // Wait for rebuild, then scroll to the event in the events list
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      final eventsForDay = _getEventsForDay(_selectedDay!);
+      final targetIndex = eventsForDay.indexWhere((event) => event['id'].toString() == _highlightedEventId);
+
+      if (targetIndex == -1) {
+        print('⚠️ Event not found in selected day events');
+        return;
+      }
+
+      // Calculate scroll position for events list
+      const double eventCardHeight = 80.0; // Approximate event card height
+      final double scrollOffset = targetIndex * (eventCardHeight + AppConstants.spacingM);
+
+      // Scroll to the event
+      if (_eventsScrollController.hasClients) {
+        await _eventsScrollController.animateTo(
+          scrollOffset,
+          duration: const Duration(milliseconds: 600),
+          curve: Curves.easeInOut,
+        );
+
+        // Start highlight animation after scrolling
+        await Future.delayed(const Duration(milliseconds: 200));
+        _highlightAnimationController.forward();
+
+        // Clear highlight after animation
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          setState(() {
+            _highlightedEventId = null;
+          });
+        });
+      }
+    });
+  }
 
   DateTime _normalizeDate(DateTime date) {
     return DateTime(date.year, date.month, date.day);
@@ -320,7 +434,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           child: eventsForDay.isEmpty
               ? _buildEmptyEventsView()
               : ListView.builder(
-            // Add bottom padding to prevent FAB overlap
+            controller: _eventsScrollController, // NEW: Add scroll controller
             padding: EdgeInsets.only(
               left: AppConstants.spacingM,
               right: AppConstants.spacingM,
@@ -370,80 +484,117 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Widget _buildEventCard(Map<String, dynamic> event, int index) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
-      child: ListTile(
-        leading: Container(
-          width: 12,
-          height: 40,
-          decoration: BoxDecoration(
-            color: event['color'] ?? Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.circular(6),
-          ),
-        ),
-        title: Text(
-          event['title'],
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        subtitle: Row(
-          children: [
-            Icon(
-              Icons.access_time,
-              size: 16,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: AppConstants.spacingS),
-            Text(event['time']),
-            const SizedBox(width: AppConstants.spacingM),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 2,
-              ),
-              decoration: BoxDecoration(
-                color: (event['color'] ?? Theme.of(context).colorScheme.primary)
-                    .withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                event['type'],
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: event['color'] ?? Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w500,
+    final isHighlighted = event['id'].toString() == _highlightedEventId;
+
+    return AnimatedBuilder(
+      animation: _highlightAnimation,
+      builder: (context, child) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
+          decoration: isHighlighted
+              ? BoxDecoration(
+            borderRadius: BorderRadius.circular(AppConstants.radiusM),
+            boxShadow: [
+              BoxShadow(
+                color: Theme.of(context).colorScheme.primary.withOpacity(
+                  0.3 * _highlightAnimation.value,
                 ),
+                blurRadius: 20 * _highlightAnimation.value,
+                spreadRadius: 2 * _highlightAnimation.value,
+              ),
+            ],
+          )
+              : null,
+          child: Card(
+            elevation: isHighlighted ? 4 * _highlightAnimation.value : 0,
+            child: Container(
+              decoration: isHighlighted
+                  ? BoxDecoration(
+                borderRadius: BorderRadius.circular(AppConstants.radiusM),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(
+                    0.6 * _highlightAnimation.value,
+                  ),
+                  width: 2 * _highlightAnimation.value,
+                ),
+              )
+                  : null,
+              child: ListTile(
+                leading: Container(
+                  width: 12,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: event['color'] ?? Theme.of(context).colorScheme.primary,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+                title: Text(
+                  event['title'],
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Row(
+                  children: [
+                    Icon(
+                      Icons.access_time,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: AppConstants.spacingS),
+                    Text(event['time']),
+                    const SizedBox(width: AppConstants.spacingM),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: (event['color'] ?? Theme.of(context).colorScheme.primary)
+                            .withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        event['type'],
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: event['color'] ?? Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                trailing: PopupMenuButton(
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: 'edit',
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit, size: 20),
+                          SizedBox(width: 12),
+                          Text('Edit'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete, size: 20, color: Colors.red),
+                          SizedBox(width: 12),
+                          Text('Delete', style: TextStyle(color: Colors.red)),
+                        ],
+                      ),
+                    ),
+                  ],
+                  onSelected: (value) => _handleEventAction(value as String, event),
+                ),
+                onTap: () => _showEventDetails(event),
               ),
             ),
-          ],
-        ),
-        trailing: PopupMenuButton(
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'edit',
-              child: Row(
-                children: [
-                  Icon(Icons.edit, size: 20),
-                  SizedBox(width: 12),
-                  Text('Edit'),
-                ],
-              ),
-            ),
-            const PopupMenuItem(
-              value: 'delete',
-              child: Row(
-                children: [
-                  Icon(Icons.delete, size: 20, color: Colors.red),
-                  SizedBox(width: 12),
-                  Text('Delete', style: TextStyle(color: Colors.red)),
-                ],
-              ),
-            ),
-          ],
-          onSelected: (value) => _handleEventAction(value as String, event),
-        ),
-        onTap: () => _showEventDetails(event),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -1191,11 +1342,5 @@ class _CalendarScreenState extends State<CalendarScreen> {
     _eventSelectedTime = null;
     _eventSelectedCategory = null;
     _eventIsAllDay = null;
-  }
-
-  @override
-  void dispose() {
-    _eventTitleController?.dispose();
-    super.dispose();
   }
 }

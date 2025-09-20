@@ -18,15 +18,6 @@ void main() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
-  // Set system UI overlay style
-  // SystemChrome.setSystemUIOverlayStyle(
-  //   const SystemUiOverlayStyle(
-  //     statusBarColor: Colors.transparent,
-  //     statusBarIconBrightness: Brightness.dark,
-  //     systemNavigationBarColor: Colors.transparent,
-  //   ),
-  // );
-
   // Load environment variables
   await dotenv.load();
 
