@@ -230,8 +230,23 @@ class EnhancedChatBubble extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingM),
             child: ElevatedButton.icon(
               onPressed: () {
+                // Parse event date if available
+                DateTime? eventDate;
+                if (meta['event_date'] != null) {
+                  try {
+                    eventDate = DateTime.parse(meta['event_date']);
+                  } catch (e) {
+                    print('Error parsing event date: $e');
+                  }
+                }
+
                 Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const CalendarScreen())
+                  MaterialPageRoute(
+                    builder: (_) => CalendarScreen(
+                      highlightEventId: meta['event_id']?.toString(), // Pass event ID
+                      highlightDate: eventDate, // Pass event date
+                    ),
+                  ),
                 );
               },
               icon: const Icon(Icons.calendar_today),

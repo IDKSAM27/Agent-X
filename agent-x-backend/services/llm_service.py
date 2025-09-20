@@ -86,13 +86,16 @@ class LLMService:
 
             # Calendar functions
             if function_name == "create_event" and result_data.get("success"):
+                event_data = result_data.get("data", {})
                 metadata.update({
                     "type": "calendar",
                     "action": "event_created",
                     "show_action_button": True,
-                    "event_id": result_data.get("data", {}).get("event_id"),
-                    "event_title": result_data.get("data", {}).get("title"),
+                    "event_id": event_data.get("event_id"),
+                    "event_title": event_data.get("title"),
+                    "event_date": event_data.get("date"), # Add event date
                 })
+
             elif function_name == "get_events" and result_data.get("success"):
                 metadata.update({
                     "type": "calendar",
