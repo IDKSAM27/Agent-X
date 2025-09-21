@@ -1,0 +1,52 @@
+# RSS and Feed Processing
+pip install feedparser==6.0.10
+
+# Async HTTP Client
+pip install aiohttp==3.9.1
+
+# HTML Processing and Text Cleaning
+pip install beautifulsoup4==4.12.2
+pip install lxml==4.9.3
+
+# Text Processing and Analysis
+pip install nltk==3.8.1
+pip install spacy==3.7.2
+
+# Date and Time Processing
+pip install python-dateutil==2.8.2
+
+# Caching (Redis for production or memory for development)
+pip install redis==5.0.1
+pip install diskcache==5.6.3  # Alternative to Redis for development
+
+# URL and Text Processing
+pip install requests==2.31.0
+pip install urllib3==2.1.0
+
+Optional enhancement:
+
+# Advanced Text Analysis (for better keyword extraction)
+pip install textblob==0.17.1
+pip install scikit-learn==1.3.2
+
+# Image URL extraction and validation
+pip install pillow==10.1.0
+
+# Better async utilities
+pip install asyncio-throttle==1.0.2
+
+# Environment variable management
+pip install python-dotenv==1.0.0
+
+# Timezone handling
+pip install pytz==2023.3
+
+--------------------------------------------------
+
+# Run this once in Python or create a setup script
+import nltk
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('wordnet')
+nltk.download('averaged_perceptron_tagger')
+

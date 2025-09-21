@@ -1,7 +1,6 @@
 import sys
 import os
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +11,7 @@ import logging
 import uvicorn
 import sqlite3
 import firebase_admin
+import asyncio
 from firebase_admin import credentials, auth as firebase_auth
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -27,6 +27,8 @@ from database.operations import (
     update_task_completion_in_db, update_task_in_db, delete_task_from_db,
     save_enhanced_event, update_event_in_db, delete_event_from_db
 )
+from routes.news_router import router as news_router
+from services.news_scheduler import news_scheduler
 
 # Load env variables
 load_dotenv()
@@ -34,7 +36,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+app = FastAPI(title="Agent X API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,6 +45,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include router for news support
+app.include_router(news_router)
 
 # Absolute DB path for reliability
 DB_PATH = os.path.join(os.path.dirname(__file__), "agent_x.db")
@@ -1103,6 +1108,39 @@ async def delete_event(event_id: int, current_user: dict = Depends(get_current_u
     except Exception as e:
         logger.error(f"❌ Error deleting event: {e}")
         return {"success": False, "message": str(e)}
+
+# News support endpoints
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    logging.info("🚀 Agent X API starting up...")
+
+    # Initialize NLTK data
+    try:
+        import nltk
+        nltk.download('punkt', quiet=True)
+        nltk.download('stopwords', quiet=True)
+        logging.info("✅ NLTK data initialized")
+    except Exception as e:
+        logging.warning(f"⚠️ NLTK initialization failed: {e}")
+
+    # Start background news updates
+    asyncio.create_task(news_scheduler.start_background_updates())
+    logging.info("✅ News scheduler started")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    await news_scheduler.stop_background_updates()
+    logging.info("🛑 Agent X API shutting down...")
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Agent X API is running",
+        "version": "1.0.0",
+        "news_service": "active"
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
