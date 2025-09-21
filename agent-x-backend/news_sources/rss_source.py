@@ -1,11 +1,11 @@
 import feedparser
 import aiohttp
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 import logging
-from .base_source import BaseNewsSource
-from ..models.news_models import RawArticle
-from ..utils.text_utils import clean_html, extract_text
+from news_sources.base_source import BaseNewsSource
+from models.news_models import RawArticle
+from utils.text_utils import clean_html, extract_text, extract_image_urls
 
 logger = logging.getLogger(__name__)
 
