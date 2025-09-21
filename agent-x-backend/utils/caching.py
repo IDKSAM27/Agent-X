@@ -15,7 +15,7 @@ except ImportError:
     DISKCACHE_AVAILABLE = False
 
 class CacheManager:
-    def __init__(self, ttl_hours: int = 2, use_redis: bool = True):
+    def __init__(self, ttl_hours: int = 2, use_redis: bool = False): #TODO: put in True to use the redis
         self.ttl_seconds = ttl_hours * 3600
         self.use_redis = use_redis and REDIS_AVAILABLE
 

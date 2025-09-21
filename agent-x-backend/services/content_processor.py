@@ -22,74 +22,113 @@ class ContentProcessor:
         # You can add nltk or spacy initialization if required
         pass
 
+    # async def process_articles(self, raw_articles: List[RawArticle], user_profile: UserProfile) -> List[ProcessedArticle]:
+    #     """Process a list of raw articles considering user profile and returns processed articles."""
+    #     processed_articles = []
+    #
+    #     for raw in raw_articles:
+    #         try:
+    #             processed = await self._process_single_article(raw, user_profile)
+    #             if processed and self._meets_quality_threshold(processed):
+    #                 processed_articles.append(processed)
+    #         except Exception as e:
+    #             logger.error(f"Error processing article '{raw.title}': {e}")
+    #
+    #     # Sort articles by combined score (weighted)
+    #     processed_articles.sort(
+    #         key=lambda a: a.relevance_score * 0.6 + a.quality_score * 0.4,
+    #         reverse=True
+    #     )
+    #     # Limit to top 100 for performance
+    #     return processed_articles[:100]
+
     async def process_articles(self, raw_articles: List[RawArticle], user_profile: UserProfile) -> List[ProcessedArticle]:
-        """Process a list of raw articles considering user profile and returns processed articles."""
         processed_articles = []
 
         for raw in raw_articles:
             try:
                 processed = await self._process_single_article(raw, user_profile)
-                if processed and self._meets_quality_threshold(processed):
+                # TEMPORARY: Accept all articles for testing
+                if processed:  # Remove quality threshold temporarily
                     processed_articles.append(processed)
             except Exception as e:
                 logger.error(f"Error processing article '{raw.title}': {e}")
 
-        # Sort articles by combined score (weighted)
+        # Sort by combined score
         processed_articles.sort(
             key=lambda a: a.relevance_score * 0.6 + a.quality_score * 0.4,
             reverse=True
         )
-        # Limit to top 100 for performance
-        return processed_articles[:100]
+        return processed_articles[:50]  # Return top 50 for testing
 
     async def _process_single_article(self, raw: RawArticle, user_profile: UserProfile) -> Optional[ProcessedArticle]:
-        # Combine text fields to analyze
-        content_text = " ".join(filter(None, [raw.title, raw.description, raw.content or ""]))
+        try:
+            # Combine text fields to analyze
+            content_text = " ".join(filter(None, [raw.title, raw.description, raw.content or ""]))
 
-        # Clean and summarize content, can leverage NLP here
-        summary = self._generate_summary(raw.description or raw.content or "")
+            # Clean and summarize content
+            summary = self._generate_summary(raw.description or raw.content or "")
 
-        # Extract keywords e.g. via simple frequency or NLP-based extraction
-        keywords = self._extract_keywords(content_text)
+            # Extract keywords
+            keywords = self._extract_keywords(content_text)
 
-        # Determine category
-        category = self._classify_category(content_text, keywords, user_profile.profession)
+            # Determine category
+            category = self._classify_category(content_text, keywords, user_profile.profession)
 
-        # Detect event details in text, dates and locations
-        event_info = self._detect_event_info(content_text)
+            # Detect event details
+            event_info = self._detect_event_info(content_text)
 
-        # Calculate relevance to user
-        relevance_score = self._calculate_relevance_score(content_text, keywords, user_profile)
+            # Calculate scores
+            relevance_score = self._calculate_relevance_score(content_text, keywords, user_profile)
+            quality_score = self._calculate_quality_score(raw, content_text)
 
-        # Determine quality (length, source, freshness)
-        quality_score = self._calculate_quality_score(raw, content_text)
+            # ADD DEBUG LOGGING
+            logger.info(f"Processing article: '{raw.title[:50]}...'")
+            logger.info(f"  Quality score: {quality_score}")
+            logger.info(f"  Relevance score: {relevance_score}")
+            logger.info(f"  Category: {category}")
+            logger.info(f"  Content length: {len(content_text)}")
+            logger.info(f"  Source: {raw.source_name}")
 
-        # Generate possible actions user can take
-        actions = self._generate_actions(content_text, event_info, category)
+            # Generate possible actions
+            actions = self._generate_actions(content_text, event_info, category)
 
-        processed = ProcessedArticle(
-            id="",
-            title=raw.title,
-            description=raw.description,
-            summary=summary,
-            url=raw.url,
-            image_url=raw.image_url,
-            published_at=raw.published_at,
-            source=raw.source,
-            category=category,
-            relevance_score=relevance_score,
-            quality_score=quality_score,
-            engagement_score=0.0,  # for future
-            tags=keywords,  # reuse as simple tags
-            keywords=keywords,
-            is_local_event=event_info.get("is_local", False),
-            is_urgent=event_info.get("is_urgent", False),
-            event_date=event_info.get("date"),
-            event_location=event_info.get("location"),
-            event_deadline=event_info.get("deadline"),
-            available_actions=actions,
-        )
-        return processed
+            processed = ProcessedArticle(
+                id="",
+                title=raw.title,
+                description=raw.description,
+                summary=summary,
+                url=raw.url,
+                image_url=raw.image_url,
+                published_at=raw.published_at,
+                source=raw.source_name,  # Fixed
+                category=category,
+                relevance_score=relevance_score,
+                quality_score=quality_score,
+                engagement_score=0.0,
+                tags=keywords,
+                keywords=keywords,
+                is_local_event=event_info.get("is_local", False),
+                is_urgent=event_info.get("is_urgent", False),
+                event_date=event_info.get("event_date"),
+                event_location=event_info.get("location"),
+                event_deadline=event_info.get("deadline"),
+                available_actions=actions,
+            )
+
+            # CHECK QUALITY THRESHOLD WITH LOGGING
+            passes_quality = self._meets_quality_threshold(processed)
+            logger.info(f"  Passes quality threshold: {passes_quality}")
+
+            if not passes_quality:
+                logger.info(f"  REJECTED: Title len={len(processed.title)}, Desc len={len(processed.description)}, Quality={processed.quality_score}")
+
+            return processed if passes_quality else None
+
+        except Exception as e:
+            logger.error(f"Error processing article '{raw.title}': {e}")
+            return None
+
 
     def _generate_summary(self, text: str, max_length: int = 150) -> str:
         """Generates a simple summary, limiting length and preserving sentences."""
@@ -236,29 +275,34 @@ class ContentProcessor:
 
     def _calculate_quality_score(self, raw: RawArticle, text: str) -> float:
         """Estimate article quality (length, source, freshness)"""
-        score = 0.5
+        score = 0.4  # HIGHER BASE SCORE (was 0.5 but let's be more generous)
+
         length = len(text)
-        if length > 500:
+        if length > 100:  # LOWER THRESHOLD (was 500)
             score += 0.1
-        elif length > 1000:
+        if length > 300:  # LOWER THRESHOLD (was 1000)
             score += 0.15
 
-        # Known reputable sources boost
-        reputable_sources = {"bbc", "reuters", "the hindu", "times of india", "techcrunch"}
-        if any(src in raw.source.lower() for src in reputable_sources):
+        # MORE FLEXIBLE SOURCE MATCHING
+        reputable_sources = ["bbc", "reuters", "hindu", "times", "techcrunch", "verge", "coursera", "edsurge"]
+        source_name = raw.source_name.lower()
+        if any(src in source_name for src in reputable_sources):
             score += 0.2
 
+        # Recency bonus
         age_hours = (datetime.now() - raw.published_at).total_seconds() / 3600
-        if age_hours < 24:
+        if age_hours < 48:  # MORE GENEROUS (was 24)
             score += 0.1
-        elif age_hours < 72:
+        elif age_hours < 168:  # MORE GENEROUS (was 72)
             score += 0.05
 
-        # Check for image availability
+        # Image bonus
         if raw.image_url:
-            score += 0.1
+            score += 0.05
 
+        logger.debug(f"Quality score for '{raw.title[:30]}...': {score} (length={length}, source={source_name})")
         return min(score, 1.0)
+
 
     def _generate_actions(self, text: str, event_info: Dict, category: NewsCategory) -> List[NewsAction]:
         """Determine actionable items user can take."""
@@ -308,12 +352,23 @@ class ContentProcessor:
 
     def _meets_quality_threshold(self, article: ProcessedArticle) -> bool:
         """Check if article passes quality filter."""
-        if article.quality_score < 0.3:
+
+        # MAKE LESS STRICT
+        if article.quality_score < 0.2:  # Lowered from 0.3
+            logger.debug(f"Rejected for low quality score: {article.quality_score}")
             return False
-        if len(article.title) < 10 or len(article.description) < 20:
+
+        # MAKE LESS STRICT
+        if len(article.title) < 5 or len(article.description) < 10:  # Lowered from 10/20
+            logger.debug(f"Rejected for short content: title={len(article.title)}, desc={len(article.description)}")
             return False
-        spam_indicators = ["click here", "buy now", "free trial", "subscribe now", "limited time"]
+
+        # MAKE SPAM DETECTION LESS AGGRESSIVE
+        spam_indicators = ["buy now", "limited offer", "act fast", "click here now"]  # Reduced list
         text = f"{article.title} {article.description}".lower()
         if any(s in text for s in spam_indicators):
+            logger.debug(f"Rejected for spam indicators")
             return False
+
+        logger.debug(f"Article passed quality threshold: {article.title[:30]}...")
         return True

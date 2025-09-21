@@ -2,9 +2,11 @@ from typing import List
 import aiohttp
 import feedparser
 import logging
+from datetime import datetime
 from urllib.parse import quote_plus
 from news_sources.base_source import BaseNewsSource
 from models.news_models import RawArticle
+from utils.text_utils import clean_html
 
 logger = logging.getLogger((__name__))
 

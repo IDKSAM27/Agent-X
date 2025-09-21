@@ -252,3 +252,43 @@ async def submit_news_feedback(
     except Exception as e:
         logger.error(f"Error submitting news feedback: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/test")
+async def get_test_news(
+        profession: str = Query("teacher", description="User profession"),
+        location: str = Query("India", description="User location"),
+        interests: str = Query("", description="Comma-separated interests"),
+        limit: int = Query(5, ge=1, le=20),
+):
+    """
+    Test endpoint for news system - NO AUTH REQUIRED
+    """
+    try:
+        # Parse interests
+        interests_list = []
+        if interests:
+            interests_list = [interest.strip() for interest in interests.split(',')]
+
+        # Fetch contextual news
+        news_data = await news_service.get_contextual_news(
+            profession=profession,
+            location=location,
+            interests=interests_list,
+            limit=limit,
+            force_refresh=False
+        )
+
+        return {
+            'success': True,
+            'message': f"Found {len(news_data['articles'])} relevant articles",
+            'data': news_data,
+            'test_mode': True
+        }
+
+    except Exception as e:
+        logger.error(f"Error in test news endpoint: {e}")
+        return {
+            'success': False,
+            'error': str(e),
+            'message': 'Failed to fetch news'
+        }

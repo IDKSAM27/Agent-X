@@ -1125,8 +1125,9 @@ async def startup_event():
         logging.warning(f"⚠️ NLTK initialization failed: {e}")
 
     # Start background news updates
-    asyncio.create_task(news_scheduler.start_background_updates())
-    logging.info("✅ News scheduler started")
+    #TODO: The scheduler is running every hour and consuming resources. For development, disabled it
+    #asyncio.create_task(news_scheduler.start_background_updates())
+    #logging.info("✅ News scheduler started")
 
 @app.on_event("shutdown")
 async def shutdown_event():
