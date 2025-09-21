@@ -1,19 +1,11 @@
-import firebase_admin
-from firebase_admin import auth, credentials
+from firebase_admin import auth
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import os
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Initialize Firebase Admin SDK (if not already done)
-if not firebase_admin._apps:
-    # Adjust path to your service account file
-    cred_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "firebase-service-account.json")
-    cred = credentials.Certificate(cred_path)
-    firebase_admin.initialize_app(cred)
-
+# Use existing Firebase app (already initialized in main.py)
 security = HTTPBearer()
 
 async def verify_firebase_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
