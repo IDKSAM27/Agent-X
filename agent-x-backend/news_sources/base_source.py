@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 from datetime import datetime
 import logging
-from ..models.news_models import RawArticle, NewsSource
+from models.news_models import RawArticle, NewsSource
 
 logger = logging.getLogger(__name__)
 

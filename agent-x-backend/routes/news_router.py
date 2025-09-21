@@ -3,8 +3,8 @@ from typing import Optional
 import logging
 
 from services.smart_news_service import SmartNewsService
-from database.operations import get_user_profile_by_firebase_uid
-from core.auth import verify_firebase_token
+from database.operations import get_user_profile_by_uuid
+from utils.auth import verify_firebase_token
 from models.api_models import NewsResponse, NewsRequest
 from functions.task_functions import TaskFunctions
 from functions.calendar_functions import CalendarFunctions

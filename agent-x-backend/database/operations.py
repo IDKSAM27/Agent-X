@@ -79,31 +79,6 @@ def save_task(firebase_uid: str, title: str, description: str = "", priority: st
 
     return task_id
 
-# def save_task(firebase_uid: str, title: str, description: str = "", priority: str = "medium", category: str = "general", due_date: str = None):
-#     """Save a task"""
-#     conn = sqlite3.connect(DB_PATH, timeout=10.0)
-#     try:
-#         cursor = conn.cursor()
-#         now = datetime.now().isoformat()
-#
-#         cursor.execute('''
-#             INSERT INTO tasks (firebase_uid, title, description, priority, category, due_date, is_completed, progress, tags, created_at, updated_at)
-#             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-#         ''', (firebase_uid, title, description, priority, category, due_date, 0, 0.0, '[]', now, now))
-#
-#         task_id = cursor.lastrowid
-#         conn.commit()
-#
-#         logger.info(f"✅ Saved task: {title} for Firebase UID {firebase_uid}")
-#         return task_id
-#
-#     except Exception as e:
-#         logger.error(f"❌ Error saving task: {e}")
-#         conn.rollback()
-#         raise
-#     finally:
-#         conn.close()
-
 def get_user_tasks(firebase_uid: str, status: str = "pending"):
     """Get user tasks by status"""
     conn = sqlite3.connect(DB_PATH, timeout=10.0)
@@ -379,5 +354,25 @@ def delete_event_from_db(firebase_uid: str, event_id: int) -> bool:
     except Exception as e:
         conn.rollback()
         raise e
+    finally:
+        conn.close()
+
+def get_user_profile_by_uuid(firebase_uid: str) -> dict:
+    """Retrieve user profile info from database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            SELECT display_name, profession, email FROM users WHERE firebase_uid = ?
+        ''', (firebase_uid,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                "display_name": row[0],
+                "profession": row[1],
+                "email": row[2]
+            }
+        else:
+            return {}
     finally:
         conn.close()

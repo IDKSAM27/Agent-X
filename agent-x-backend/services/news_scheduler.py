@@ -3,8 +3,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List
 
-from smart_news_service import SmartNewsService
-from database.operations import get_all_active_users
+from services.smart_news_service import SmartNewsService
 
 logger = logging.getLogger(__name__)
 

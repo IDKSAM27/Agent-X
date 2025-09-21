@@ -1,9 +1,12 @@
 from typing import List
 import aiohttp
 import feedparser
+import logging
 from urllib.parse import quote_plus
-from .base_source import BaseNewsSource
-from ..models.news_models import RawArticle
+from news_sources.base_source import BaseNewsSource
+from models.news_models import RawArticle
+
+logger = logging.getLogger((__name__))
 
 class GoogleNewsSource(BaseNewsSource):
     """Google News RSS source with custom queries"""
