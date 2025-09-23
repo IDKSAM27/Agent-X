@@ -34,8 +34,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUserData();
-    _loadNews();
+    _loadUserData().then((_) {
+      // Load news AFTER user data is loaded
+      _loadNews();
+    });
   }
 
   Future<void> _loadUserData() async {
@@ -66,28 +68,39 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadNews() async {
+    print('🔄 _loadNews() called, _profession: $_profession'); // Debug
+
     try {
       if (_profession != null) {
-        // Use the new news service method
+        print('✅ Profession exists, calling news service...'); // Debug
+
         final newsService = NewsService();
         final response = await newsService.getContextualNews(
           profession: _profession,
-          location: 'India', // I can make this dynamic based on user location
-          limit: 6, // Just for home screen preview
+          location: 'India',
+          limit: 6,
         );
+
+        print('📰 News loaded: ${response.articles.length} articles'); // Debug
 
         setState(() {
           _newsArticles = response.articles;
-          _isLoadingNews = false;
+          _isLoadingNews = false; // This should be called
+        });
+      } else {
+        print('❌ No profession, skipping news load'); // Debug
+        setState(() {
+          _isLoadingNews = false; // Set to false even if no profession
         });
       }
     } catch (e) {
-      print('Error loading news: $e');
+      print('💥 Error loading news: $e'); // Debug
       setState(() {
-        _isLoadingNews = false;
+        _isLoadingNews = false; // Make sure this always runs
       });
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
