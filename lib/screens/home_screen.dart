@@ -3,16 +3,19 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/news_service.dart';
-import '../models/news_model.dart';
+import '../models/news_models.dart';
 import '../widgets/dashboard_card.dart';
 import '../widgets/quick_action_tile.dart';
 import '../widgets/news_card.dart';
 import '../widgets/app_logo.dart';
 import '../core/constants/app_constants.dart';
+import '../services/news_service.dart';
+import '../models/news_models.dart';
 import 'chat_screen.dart';
 import 'clock_screen.dart';
 import 'calendar_screen.dart';
 import 'tasks_screen.dart';
+import 'news_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -65,13 +68,21 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadNews() async {
     try {
       if (_profession != null) {
-        final articles = await NewsService.fetchNewsForProfession(_profession!);
+        // Use the new news service method
+        final newsService = NewsService();
+        final response = await newsService.getContextualNews(
+          profession: _profession,
+          location: 'India', // I can make this dynamic based on user location
+          limit: 6, // Just for home screen preview
+        );
+
         setState(() {
-          _newsArticles = articles;
+          _newsArticles = response.articles;
           _isLoadingNews = false;
         });
       }
     } catch (e) {
+      print('Error loading news: $e');
       setState(() {
         _isLoadingNews = false;
       });
@@ -326,7 +337,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Theme.of(context).colorScheme.primary,
                 ],
                 isLoading: _isLoadingNews,
-                onTap: _isLoadingNews ? null : () => _showNewsModal(),
+                onTap: _isLoadingNews ? null : () => _navigateToNews(),
               ),
             ),
           ],
@@ -394,7 +405,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             TextButton(
-              onPressed: _isLoadingNews ? null : () => _showNewsModal(),
+              onPressed: _isLoadingNews ? null : () => _navigateToNews(),
               child: const Text('View All'),
             ),
           ],
@@ -494,6 +505,25 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _navigateToNews() {
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const NewsScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return SlideTransition(
+            position: animation.drive(
+              Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
+                  .chain(CurveTween(curve: Curves.easeInOutCubic)),
+            ),
+            child: child,
+          );
+        },
+        transitionDuration: AppConstants.normalAnimation,
+      ),
+    );
+  }
+
   void _navigateToClock() {
     Navigator.push(
       context,
@@ -548,60 +578,6 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  void _showNewsModal() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        maxChildSize: 0.9,
-        minChildSize: 0.5,
-        builder: (context, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(AppConstants.radiusL)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                padding: AppConstants.paddingM,
-                child: Column(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.outline.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingM),
-                    Text(
-                      'Latest News',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: ListView.builder(
-                  controller: scrollController,
-                  padding: AppConstants.paddingM,
-                  itemCount: _newsArticles.length,
-                  itemBuilder: (context, index) => NewsCard(
-                    article: _newsArticles[index],
-                    onTap: () => _showArticleDetails(_newsArticles[index]),
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
