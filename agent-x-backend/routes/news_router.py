@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
+from datetime import datetime
 import logging
 
 from services.smart_news_service import SmartNewsService
@@ -33,7 +34,7 @@ async def get_contextual_news(
 
         # Get user profile from database if not provided in query
         if not profession:
-            user_profile = await get_user_profile_by_firebase_uid(firebase_uid)
+            user_profile = await get_user_profile_by_uuid(firebase_uid)
             if user_profile:
                 profession = user_profile.get('profession', 'Professional')
                 location = user_profile.get('location', location)
@@ -79,7 +80,7 @@ async def get_news_by_category(
         firebase_uid = current_user.get('uid')
 
         # Get user profile for context
-        user_profile = await get_user_profile_by_firebase_uid(firebase_uid)
+        user_profile = await get_user_profile_by_uuid(firebase_uid)
         profession = user_profile.get('profession', 'Professional') if user_profile else 'Professional'
         location = user_profile.get('location', 'India') if user_profile else 'India'
 
@@ -123,7 +124,7 @@ async def get_local_events(
         firebase_uid = current_user.get('uid')
 
         # Get user context
-        user_profile = await get_user_profile_by_firebase_uid(firebase_uid)
+        user_profile = await get_user_profile_by_uuid(firebase_uid)
         if not location and user_profile:
             location = user_profile.get('location', 'India')
 
@@ -259,11 +260,12 @@ async def get_test_news(
         location: str = Query("India", description="User location"),
         interests: str = Query("", description="Comma-separated interests"),
         limit: int = Query(5, ge=1, le=20),
+        force_refresh: bool = Query(True, description="Force refresh for testing"),  # Default to true
 ):
-    """
-    Test endpoint for news system - NO AUTH REQUIRED
-    """
+    """Test endpoint for news system - NO AUTH REQUIRED"""
     try:
+        logger.info(f"🧪 TEST ENDPOINT: profession={profession}, location={location}, force_refresh={force_refresh}")
+
         # Parse interests
         interests_list = []
         if interests:
@@ -275,20 +277,44 @@ async def get_test_news(
             location=location,
             interests=interests_list,
             limit=limit,
-            force_refresh=False
+            force_refresh=force_refresh
         )
+
+        logger.info(f"🧪 TEST RESULT: {len(news_data.get('articles', []))} articles returned")
 
         return {
             'success': True,
-            'message': f"Found {len(news_data['articles'])} relevant articles",
+            'message': f"Found {len(news_data.get('articles', []))} relevant articles",
             'data': news_data,
-            'test_mode': True
+            'test_mode': True,
+            'debug_timestamp': datetime.now().isoformat()
         }
 
     except Exception as e:
-        logger.error(f"Error in test news endpoint: {e}")
+        logger.error(f"💥 Error in test news endpoint: {e}", exc_info=True)
         return {
             'success': False,
             'error': str(e),
-            'message': 'Failed to fetch news'
+            'message': 'Failed to fetch news',
+            'debug_timestamp': datetime.now().isoformat()
         }
+
+# For debugging
+@router.get("/debug/sources")
+async def debug_sources():
+    """Debug endpoint to check source status"""
+    try:
+        source_status = {}
+        for name, source in news_service.sources.items():
+            source_status[name] = {
+                'can_fetch': source.can_fetch(),
+                'last_fetch': source.last_fetch.isoformat() if source.last_fetch else None,
+                'fetch_count': source.fetch_count,
+                'error_count': source.error_count,
+                'health_score': source.get_health_score(),
+                'config_active': source.config.is_active
+            }
+        return {'sources': source_status}
+    except Exception as e:
+        return {'error': str(e)}
+

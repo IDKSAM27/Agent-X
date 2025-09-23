@@ -43,23 +43,36 @@ class ContentProcessor:
     #     return processed_articles[:100]
 
     async def process_articles(self, raw_articles: List[RawArticle], user_profile: UserProfile) -> List[ProcessedArticle]:
+        """Process raw articles into enriched, scored articles"""
+        logger.info(f"🔄 ContentProcessor: Starting to process {len(raw_articles)} articles")
         processed_articles = []
 
-        for raw in raw_articles:
+        for i, raw in enumerate(raw_articles):
             try:
+                logger.debug(f"Processing article {i+1}/{len(raw_articles)}: '{raw.title[:50]}...'")
                 processed = await self._process_single_article(raw, user_profile)
-                # TEMPORARY: Accept all articles for testing
-                if processed:  # Remove quality threshold temporarily
-                    processed_articles.append(processed)
-            except Exception as e:
-                logger.error(f"Error processing article '{raw.title}': {e}")
 
-        # Sort by combined score
+                if processed:
+                    processed_articles.append(processed)
+                    logger.debug(f"✅ Article {i+1} processed successfully")
+                else:
+                    logger.debug(f"❌ Article {i+1} rejected during processing")
+
+            except Exception as e:
+                logger.error(f"💥 Error processing article {i+1} '{raw.title[:50]}...': {e}")
+                continue
+
+        logger.info(f"📊 ContentProcessor: {len(processed_articles)} articles processed successfully out of {len(raw_articles)}")
+
+        # Sort by combined score (weighted)
         processed_articles.sort(
             key=lambda a: a.relevance_score * 0.6 + a.quality_score * 0.4,
             reverse=True
         )
-        return processed_articles[:50]  # Return top 50 for testing
+
+        final_count = min(len(processed_articles), 100)
+        logger.info(f"📤 ContentProcessor: Returning top {final_count} articles")
+        return processed_articles[:100]
 
     async def _process_single_article(self, raw: RawArticle, user_profile: UserProfile) -> Optional[ProcessedArticle]:
         try:
