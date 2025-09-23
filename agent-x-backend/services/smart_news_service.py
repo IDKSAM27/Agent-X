@@ -55,26 +55,41 @@ class SmartNewsService:
             profession=profession,
             location=location,
             interests=interests or [],
-            skill_level="intermediate",  # Default
-            career_stage="mid_career"   # Default
+            skill_level="intermediate",
+            career_stage="mid_career"
         )
+
+        logger.info(f"🔍 Getting news for: {profession} in {location}, force_refresh={force_refresh}")
 
         # Check cache first
         cache_key = f"news:{profession}:{location}:{':'.join(interests or [])}"
         if not force_refresh:
             cached_result = await self.cache_manager.get(cache_key)
             if cached_result:
-                logger.info("Returning cached news results")
+                logger.info("📦 Returning cached news results")
                 return cached_result
 
         try:
             # Fetch from all sources concurrently
+            logger.info("🌐 Fetching from all sources...")
             raw_articles = await self._fetch_from_all_sources(user_profile)
+            logger.info(f"📥 Fetched {len(raw_articles)} raw articles")
+
+            if not raw_articles:
+                logger.warning("❌ No raw articles fetched from any source!")
+                return self._empty_response()
 
             # Process and enrich articles
+            logger.info(f"⚙️ Processing {len(raw_articles)} articles...")
             processed_articles = await self.content_processor.process_articles(
                 raw_articles, user_profile
             )
+            logger.info(f"✅ Successfully processed {len(processed_articles)} articles")
+
+            if not processed_articles:
+                logger.warning("❌ No articles survived processing!")
+                # Return raw articles for debugging
+                return self._debug_response(raw_articles)
 
             # Organize by categories
             categorized_news = self._organize_by_categories(processed_articles)
@@ -85,6 +100,7 @@ class SmartNewsService:
                 'categories': categorized_news,
                 'metadata': {
                     'total_articles': len(processed_articles),
+                    'raw_articles_fetched': len(raw_articles),  # Add for debugging
                     'sources_used': len([s for s in self.sources.values() if s.last_fetch]),
                     'last_updated': datetime.now().isoformat(),
                     'user_profile': {
@@ -98,12 +114,12 @@ class SmartNewsService:
             # Cache the result
             await self.cache_manager.set(cache_key, response)
 
-            logger.info(f"Successfully fetched {len(processed_articles)} articles for {profession} in {location}")
+            logger.info(f"🎉 Successfully returned {len(processed_articles)} articles")
             return response
 
         except Exception as e:
-            logger.error(f"Error fetching contextual news: {e}")
-            raise
+            logger.error(f"💥 Error in get_contextual_news: {e}", exc_info=True)
+            return self._error_response(str(e))
 
     async def _fetch_from_all_sources(self, user_profile: UserProfile) -> List[RawArticle]:
         """Fetch articles from all available sources concurrently"""
@@ -177,3 +193,53 @@ class SmartNewsService:
 
         health_report['overall_health'] = total_health / active_sources if active_sources > 0 else 0.0
         return health_report
+
+    def _empty_response(self):
+        """Return empty response when no articles found"""
+        return {
+            'articles': [],
+            'categories': {},
+            'metadata': {
+                'total_articles': 0,
+                'raw_articles_fetched': 0,
+                'sources_used': 0,
+                'last_updated': datetime.now().isoformat(),
+                'error': 'No articles fetched from sources'
+            }
+        }
+    def _debug_response(self, raw_articles):
+        """Return debug info when processing fails"""
+        return {
+            'articles': [],
+            'categories': {},
+            'debug_info': [
+                {
+                    'title': article.title[:100],
+                    'source': article.source_name,
+                    'published': article.published_at.isoformat(),
+                    'description_length': len(article.description or ''),
+                }
+                for article in raw_articles[:5]  # Show first 5 for debugging
+            ],
+            'metadata': {
+                'total_articles': 0,
+                'raw_articles_fetched': len(raw_articles),
+                'sources_used': len(set(a.source_name for a in raw_articles)),
+                'last_updated': datetime.now().isoformat(),
+                'error': 'Articles fetched but processing failed'
+            }
+        }
+
+    def _error_response(self, error_msg):
+        """Return error response"""
+        return {
+            'articles': [],
+            'categories': {},
+            'metadata': {
+                'total_articles': 0,
+                'raw_articles_fetched': 0,
+                'sources_used': 0,
+                'last_updated': datetime.now().isoformat(),
+                'error': error_msg
+            }
+        }
