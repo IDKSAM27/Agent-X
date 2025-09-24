@@ -27,7 +27,7 @@ class NewsService {
 
       final queryParams = <String, dynamic>{
         'limit': limit,
-        'force_refresh': forceRefresh,
+        'force_refresh': forceRefresh,  // MATCH the backend parameter name
       };
 
       if (profession != null) queryParams['profession'] = profession;
@@ -41,8 +41,8 @@ class NewsService {
         queryParameters: queryParams,
         options: Options(
           headers: {
-            ...ApiConfig.defaultHeaders,
-            'Authorization': 'Bearer $token',
+            if (token != null) 'Authorization': 'Bearer $token',  // Better error handling
+            'Content-Type': 'application/json',
           },
         ),
       );
@@ -52,6 +52,12 @@ class NewsService {
       } else {
         throw Exception('Failed to fetch news: ${response.data['message']}');
       }
+    } on DioException catch (e) {
+      print('Dio error: ${e.response?.statusCode} - ${e.response?.data}');
+      if (e.response?.statusCode == 500) {
+        throw Exception('Server error. Please try again later.');
+      }
+      throw Exception('Network error: ${e.message}');
     } catch (e) {
       print('Error fetching contextual news: $e');
       rethrow;
