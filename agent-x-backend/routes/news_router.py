@@ -26,19 +26,16 @@ async def get_contextual_news(
         force_refresh: bool = Query(False, description="Force refresh cache"),
         current_user: dict = Depends(verify_firebase_token)
 ):
-    """
-    Get contextually relevant news based on profession, location, and interests
-    """
+    """Get contextually relevant news based on profession, location, and interests"""
     try:
         firebase_uid = current_user.get('uid')
 
         # Get user profile from database if not provided in query
         if not profession:
-            user_profile = await get_user_profile_by_uuid(firebase_uid)
+            user_profile = get_user_profile_by_uuid(firebase_uid)  # REMOVED await here
             if user_profile:
                 profession = user_profile.get('profession', 'Professional')
                 location = user_profile.get('location', location)
-                # You might store interests in user profile too
 
         # Parse interests
         interests_list = []
