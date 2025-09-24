@@ -7,8 +7,22 @@ import '../widgets/news_category_filter.dart';
 import '../widgets/news_insights_widget.dart';
 import '../core/constants/app_constants.dart';
 
+// class NewsScreen extends StatefulWidget {
+//   const NewsScreen({super.key});
+//
+//   @override
+//   State<NewsScreen> createState() => _NewsScreenState();
+// }
+
 class NewsScreen extends StatefulWidget {
-  const NewsScreen({super.key});
+  final String? profession;
+  final String? location;
+
+  const NewsScreen({
+    super.key,
+    this.profession,
+    this.location,
+  });
 
   @override
   State<NewsScreen> createState() => _NewsScreenState();
@@ -55,6 +69,8 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
 
     try {
       final response = await _newsService.getContextualNews(
+        profession: widget.profession,
+        location: widget.location,
         limit: 50,
         forceRefresh: forceRefresh,
       );

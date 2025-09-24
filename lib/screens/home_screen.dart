@@ -522,7 +522,10 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const NewsScreen(),
+        pageBuilder: (context, animation, secondaryAnimation) => NewsScreen(
+          profession: _profession,  // Pass profession
+          location: 'India',        // Pass location
+        ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return SlideTransition(
             position: animation.drive(
