@@ -32,10 +32,14 @@ async def get_contextual_news(
 
         # Get user profile from database if not provided in query
         if not profession:
-            user_profile = get_user_profile_by_uuid(firebase_uid)  # REMOVED await here
+            user_profile = get_user_profile_by_uuid(firebase_uid)  # NO await here!
             if user_profile:
                 profession = user_profile.get('profession', 'Professional')
-                location = user_profile.get('location', location)
+                location = user_profile.get('location', location or 'India')
+
+        # Ensure we always have values
+        profession = profession or "Professional"
+        location = location or "India"
 
         # Parse interests
         interests_list = []
@@ -44,7 +48,7 @@ async def get_contextual_news(
 
         # Fetch contextual news
         news_data = await news_service.get_contextual_news(
-            profession=profession or "Professional",
+            profession=profession,
             location=location,
             interests=interests_list,
             limit=limit,
@@ -65,6 +69,7 @@ async def get_contextual_news(
             status_code=500,
             detail=f"Failed to fetch news: {str(e)}"
         )
+
 
 @router.get("/categories/{category}")
 async def get_news_by_category(
