@@ -23,7 +23,11 @@ class NewsService {
     bool forceRefresh = false,
   }) async {
     try {
+      print('📡 Making request to: ${ApiConfig.baseUrl}/api/news/contextual');
+      print('📊 Params: limit=$limit, profession=$profession, location=$location');
+
       final token = await _getAuthToken();
+      print('🔑 Token exists: ${token != null}');
 
       final queryParams = <String, dynamic>{
         'limit': limit,
