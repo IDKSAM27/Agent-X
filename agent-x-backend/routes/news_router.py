@@ -320,3 +320,36 @@ async def debug_sources():
     except Exception as e:
         return {'error': str(e)}
 
+@router.get("/context-for-chat")
+async def get_news_context_for_chat(
+        days_back: int = Query(3, ge=1, le=7, description="Days to look back"),
+        current_user: dict = Depends(verify_firebase_token)
+):
+    """Get news context for AI chat system"""
+    try:
+        firebase_uid = current_user.get('uid')
+
+        # Get user profile
+        user_profile = get_user_profile_by_uuid(firebase_uid)
+        profession = user_profile.get('profession', 'Professional') if user_profile else 'Professional'
+        location = user_profile.get('location', 'India') if user_profile else 'India'
+
+        # Get news context
+        context = await news_service.get_news_context_for_chat(
+            profession=profession,
+            location=location,
+            days_back=days_back
+        )
+
+        return {
+            'success': True,
+            'data': context,
+            'user_profile': {
+                'profession': profession,
+                'location': location
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting chat news context: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

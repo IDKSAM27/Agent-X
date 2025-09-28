@@ -227,3 +227,59 @@ class GeminiClient(BaseLLMClient):
                 metadata={"error": str(e), "model": "gemini-2.5-flash", "provider": "google"}
             )
 
+    async def get_enhanced_response_with_news_context(
+            self,
+            message: str,
+            conversation_history: List[Dict[str, str]],
+            user_context: Dict[str, str],
+            news_context: Dict[str, any] = None
+    ) -> Dict[str, any]:
+        """Get AI response enhanced with recent news context"""
+
+        # Build system prompt with news awareness
+        system_prompt = f"""
+You are Agent X, an intelligent personal assistant. You have access to the user's recent news context and should provide helpful, actionable responses.
+
+User Profile:
+- Profession: {user_context.get('profession', 'Professional')}
+- Location: {user_context.get('location', 'Unknown')}
+
+Recent News Context:
+{news_context.get('summary', 'No recent news available') if news_context else 'No news context provided'}
+    """
+
+        if news_context and news_context.get('total_articles', 0) > 0:
+            system_prompt += f"""
+
+Available Actions:
+- You can reference recent news articles when relevant
+- Suggest creating tasks for learning opportunities
+- Recommend calendar events for upcoming deadlines or local events
+- Provide insights based on industry trends
+
+News Categories Available:
+{', '.join(news_context.get('categories', {}).keys())}
+
+Urgent Items: {', '.join(news_context.get('urgent_items', []))}
+Local Events: {len(news_context.get('local_events', []))} upcoming events
+Career Opportunities: {len(news_context.get('career_opportunities', []))} opportunities
+Learning Opportunities: {len(news_context.get('learning_opportunities', []))} opportunities
+"""
+
+        # Add news-specific prompt enhancements
+        if any(keyword in message.lower() for keyword in ['news', 'update', 'happening', 'trends', 'opportunities']):
+            system_prompt += """
+The user is asking about news or updates. Use your news context to provide relevant, personalized information. Focus on actionable insights and suggest concrete next steps.
+"""
+
+    # Get AI response with enhanced context
+        response = await self.get_response(
+            message=message,
+            conversation_history=conversation_history,
+            system_prompt=system_prompt,
+            user_context=user_context
+        )
+
+        return response
+
+

@@ -243,3 +243,98 @@ class SmartNewsService:
                 'error': error_msg
             }
         }
+
+    async def get_news_context_for_chat(self, profession: str, location: str, days_back: int = 3) -> Dict[str, any]:
+        """Get recent news context for chat system"""
+        try:
+            # Get recent high-relevance articles
+            user_profile = UserProfile(
+                profession=profession,
+                location=location,
+                interests=[],
+                skill_level="intermediate",
+                career_stage="mid_career"
+            )
+
+            raw_articles = await self._fetch_from_all_sources(user_profile)
+            processed_articles = await self.content_processor.process_articles(raw_articles, user_profile)
+
+            # Filter for high-relevance articles from last few days
+            recent_articles = []
+            cutoff_date = datetime.now() - timedelta(days=days_back)
+
+            for article in processed_articles:
+                if (article.published_at >= cutoff_date and
+                        (article.relevance_score > 0.6 or article.is_local_event or article.is_urgent)):
+                    recent_articles.append(article)
+
+            # Generate context summary
+            context = {
+                'total_articles': len(recent_articles),
+                'categories': {},
+                'urgent_items': [],
+                'local_events': [],
+                'career_opportunities': [],
+                'learning_opportunities': [],
+                'summary': self._generate_news_summary(recent_articles, profession)
+            }
+
+            # Categorize articles
+            for article in recent_articles:
+                category = article.category.value
+                if category not in context['categories']:
+                    context['categories'][category] = []
+                context['categories'][category].append({
+                    'title': article.title,
+                    'summary': article.summary,
+                    'relevance': article.relevance_score,
+                    'url': article.url,
+                    'published': article.published_at.isoformat()
+                })
+
+                # Special categories for AI recommendations
+                if article.is_urgent:
+                    context['urgent_items'].append(article.title)
+                if article.is_local_event:
+                    context['local_events'].append({
+                        'title': article.title,
+                        'date': article.event_date.isoformat() if article.event_date else None,
+                        'location': article.event_location
+                    })
+                if article.category.value == 'career_opportunities':
+                    context['career_opportunities'].append(article.title)
+                if article.category.value in ['education', 'professional_dev']:
+                    context['learning_opportunities'].append(article.title)
+
+            return context
+
+        except Exception as e:
+            logger.error(f"Error getting news context for chat: {e}")
+            return {'error': str(e), 'total_articles': 0}
+
+    def _generate_news_summary(self, articles: List[ProcessedArticle], profession: str) -> str:
+        """Generate AI-friendly summary of recent news"""
+        if not articles:
+            return f"No recent relevant news found for {profession}."
+
+        # Group by category
+        category_counts = {}
+        for article in articles:
+            cat = article.category.display_name
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+
+        # Create summary
+        summary = f"Recent news summary for {profession}:\n"
+        summary += f"- {len(articles)} relevant articles found\n"
+
+        for category, count in category_counts.items():
+            summary += f"- {count} articles in {category}\n"
+
+        # Highlight top articles
+        top_articles = sorted(articles, key=lambda x: x.relevance_score, reverse=True)[:3]
+        summary += "\nTop relevant articles:\n"
+        for i, article in enumerate(top_articles, 1):
+            summary += f"{i}. {article.title} (Relevance: {article.relevance_score:.2f})\n"
+
+        return summary
+

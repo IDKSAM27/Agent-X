@@ -191,4 +191,30 @@ class NewsService {
       // Non-critical, don't rethrow
     }
   }
+
+  Future<Map<String, dynamic>> getNewsContextForChat({int daysBack = 3}) async {
+    try {
+      final token = await _getAuthToken();
+
+      final response = await _dio.get(
+        '/api/news/context-for-chat',
+        queryParameters: {'days_back': daysBack},
+        options: Options(
+          headers: {
+            if (token != null) 'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+        ),
+      );
+
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        return response.data['data'];
+      } else {
+        throw Exception('Failed to get news context');
+      }
+    } catch (e) {
+      print('Error getting news context for chat: $e');
+      return {'error': e.toString(), 'total_articles': 0};
+    }
+  }
 }
