@@ -35,6 +35,14 @@ dependencies:
   flutter_riverpod: ^2.4.9 # I may remove this, I already use Bloc for animation
   json_annotation: ^4.8.1
   logger: ^2.0.2+1
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  connectivity_plus: ^5.0.2
+  internet_connection_checker: ^1.0.0+1
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  shared_preferences: ^2.2.2
+  workmanager: ^0.5.2
 
 dev_dependencies:
   flutter_test:
@@ -44,6 +52,7 @@ dev_dependencies:
   injectable_generator: ^2.4.1
   build_runner: ^2.4.7
   json_serializable: ^6.7.1
+  hive_generator: ^2.0.1
 
 flutter:
   uses-material-design: true
