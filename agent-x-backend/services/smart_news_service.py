@@ -339,3 +339,26 @@ class SmartNewsService:
 
         return summary
 
+    async def get_news_context_for_chat_fast(self, profession: str, location: str, days_back: int = 3) -> Dict[str, any]:
+        """Fast version of news context for chat - uses aggressive caching"""
+        try:
+            # Check cache first with longer TTL for chat
+            cache_key = f"chat_news:{profession}:{location}:{days_back}"
+            cached_result = await self.cache_manager.get(cache_key)
+
+            if cached_result:
+                logger.info("🚄 Using cached news context for chat")
+                return cached_result
+
+            # If no cache, get from regular news context (which may have its own cache)
+            context = await self.get_news_context_for_chat(profession, location, days_back)
+
+            # Cache for 30 minutes (aggressive caching for chat)
+            await self.cache_manager.set(cache_key, context, ttl_hours=0.5)
+
+            return context
+
+        except Exception as e:
+            logger.error(f"Error getting fast news context for chat: {e}")
+            return {'error': str(e), 'total_articles': 0}
+

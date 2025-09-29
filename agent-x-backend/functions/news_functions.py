@@ -38,7 +38,7 @@ class NewsFunctions(BaseFunctionExecutor):
             days_back = arguments.get('days_back', 3)
 
             # Get news context
-            news_context = await self.news_service.get_news_context_for_chat(
+            news_context = await self.news_service.get_news_context_for_chat_fast(
                 profession=profession,
                 location=location,
                 days_back=days_back
