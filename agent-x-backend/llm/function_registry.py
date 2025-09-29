@@ -130,3 +130,33 @@ class FunctionRegistry:
                 }
             }
         })
+
+        self.register_function("get_recent_news", {
+            "type": "function",
+            "function": {
+                "name": "get_recent_news",
+                "description": "Get recent news and updates relevant to the user's profession",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "days_back": {
+                            "type": "integer",
+                            "description": "Number of days to look back for news",
+                            "default": 3
+                        }
+                    }
+                }
+            }
+        })
+
+        self.register_function("get_news_insights", {
+            "type": "function",
+            "function": {
+                "name": "get_news_insights",
+                "description": "Get news insights and trends analysis for the user's field",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        })

@@ -6,6 +6,7 @@ from llm.function_registry import FunctionRegistry
 from functions.task_functions import TaskFunctions
 from functions.calendar_functions import CalendarFunctions
 from functions.memory_functions import MemoryFunctions
+from functions.news_functions import NewsFunctions
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class LLMService:
         self.task_functions = TaskFunctions()
         self.calendar_functions = CalendarFunctions()
         self.memory_functions = MemoryFunctions()
+        self.news_functions = NewsFunctions()
 
         logger.info("✅ LLM Service initialized")
 
@@ -134,26 +136,26 @@ Available functions:
 - get_tasks: Show user's current tasks
 - create_event: Schedule calendar events 
 - get_events: Show user's calendar and schedule
+- get_recent_news: Get recent news relevant to their profession
+- get_news_insights: Get news insights and trends for their field
 
-IMPORTANT: When users make multiple requests in one message, call ALL the relevant functions in sequence. For example:
-- "My name is Sam, create a task to grade assignments, and show me my calendar" should call:
-  1. save_user_info (for the name)
-  2. create_task (for the grading task) 
-  3. get_events (to show calendar)
+IMPORTANT: When users ask about:
+- "What's happening" or "news" or "updates" → Use get_recent_news
+- "Trends" or "insights" or "industry updates" → Use get_news_insights  
+- Multiple requests → Call ALL relevant functions in sequence
 
-Always execute ALL requested actions, not just the first one.
-
-{context}
+    {context}
 
 Be conversational and helpful. Reference their profession when relevant."""
 
         return base_prompt
 
 
+
     async def _execute_functions(self, firebase_uid: str, function_calls: List[Dict], messages: List[Dict]) -> tuple[str, List[Dict]]:
         """Execute function calls and generate final response"""
         function_results = []
-        executed_functions = []  # NEW: Track executed functions
+        executed_functions = []
 
         logger.info(f"🔧 Executing {len(function_calls)} function calls")
 
@@ -162,26 +164,21 @@ Be conversational and helpful. Reference their profession when relevant."""
             arguments = func_call["arguments"]
 
             logger.info(f"🔧 Executing function: {name} with args: {arguments}")
-            logger.info(f"🔍 Function name '{name}' - checking routing...")
 
-            # Execute function based on name
             try:
                 if name in ["create_task", "get_tasks"]:
-                    logger.info(f"🔍 Routing {name} to task_functions")
                     result = await self.task_functions.execute(name, firebase_uid, arguments)
                 elif name in ["create_event", "get_events"]:
-                    logger.info(f"🔍 Routing {name} to calendar_functions")
                     result = await self.calendar_functions.execute(name, firebase_uid, arguments)
                 elif name in ["save_user_info", "get_user_info"]:
-                    logger.info(f"🔍 Routing {name} to memory_functions")
                     result = await self.memory_functions.execute(name, firebase_uid, arguments)
+                elif name in ["get_recent_news", "get_news_insights"]:  # ADD THIS LINE
+                    result = await self.news_functions.execute(name, firebase_uid, arguments)  # ADD THIS LINE
                 else:
                     result = {"error": f"Unknown function: {name}"}
-                    logger.warning(f"⚠️ Unknown function called: {name}")
 
                 function_results.append({"function": name, "result": result})
 
-                # NEW: Track successful executions for metadata
                 if result.get("success"):
                     executed_functions.append({"name": name, "result": result})
 
