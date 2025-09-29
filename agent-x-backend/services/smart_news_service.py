@@ -320,7 +320,8 @@ class SmartNewsService:
         # Group by category
         category_counts = {}
         for article in articles:
-            cat = article.category.display_name
+            # FIX: Use value instead of display_name
+            cat = article.category.value.replace('_', ' ').title()  # Convert snake_case to Title Case
             category_counts[cat] = category_counts.get(cat, 0) + 1
 
         # Create summary
