@@ -17,11 +17,13 @@ import '../core/constants/app_constants.dart';
 class NewsScreen extends StatefulWidget {
   final String? profession;
   final String? location;
+  final bool forceRefresh;
 
   const NewsScreen({
     super.key,
     this.profession,
     this.location,
+    this.forceRefresh = false,
   });
 
   @override
@@ -54,7 +56,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _loadNews();
+    _loadNews(forceRefresh: widget.forceRefresh);
     _scrollController.addListener(_onScroll);
   }
 

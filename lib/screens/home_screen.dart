@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
 import '../services/news_service.dart';
 import '../models/news_models.dart';
 import '../widgets/dashboard_card.dart';
@@ -9,8 +10,6 @@ import '../widgets/quick_action_tile.dart';
 import '../widgets/news_card.dart';
 import '../widgets/app_logo.dart';
 import '../core/constants/app_constants.dart';
-import '../services/news_service.dart';
-import '../models/news_models.dart';
 import 'chat_screen.dart';
 import 'clock_screen.dart';
 import 'calendar_screen.dart';
@@ -28,8 +27,11 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _profession;
   String? _userName;
   List<NewsArticle> _newsArticles = [];
-  bool _isLoadingNews = true;
+  bool _isLoadingNews = false; // CHANGE: Start with false
   bool _isLoadingProfile = true;
+  String? _error; // ADD: For error handling
+  NewsMetadata? _metadata; // ADD: For metadata
+  Map<String, List<NewsArticle>> _categories = {}; // ADD: For categories
 
   @override
   void initState() {
@@ -44,7 +46,6 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -68,39 +69,66 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadNews() async {
-    print('🔄 _loadNews() called, _profession: $_profession'); // Debug
+    print('🔄 _loadNews() called, _profession: $_profession');
+
+    // Don't reload if already loading
+    if (_isLoadingNews) return;
+
+    setState(() {
+      _isLoadingNews = true;
+    });
 
     try {
-      if (_profession != null) {
-        print('✅ Profession exists, calling news service...'); // Debug
+      final newsService = NewsService();
 
-        final newsService = NewsService();
-        final response = await newsService.getContextualNews(
-          profession: _profession,
-          location: 'India',
-          limit: 6,
-        );
+      // ADD TIMEOUT for home screen
+      final response = await newsService.getContextualNews(
+        profession: _profession,
+        location: 'India',
+        limit: 6,
+      ).timeout(
+        const Duration(seconds: 15), // 15 second timeout
+        onTimeout: () {
+          print('⏰ News loading timed out for home screen');
+          throw TimeoutException('News loading timed out', const Duration(seconds: 15));
+        },
+      );
 
-        print('📰 News loaded: ${response.articles.length} articles'); // Debug
+      print('📰 News loaded: ${response.articles.length} articles');
 
+      if (mounted) { // ADD: Check if widget is still mounted
         setState(() {
           _newsArticles = response.articles;
-          _isLoadingNews = false; // This should be called
-        });
-      } else {
-        print('❌ No profession, skipping news load'); // Debug
-        setState(() {
-          _isLoadingNews = false; // Set to false even if no profession
+          _categories = response.categories;
+          _metadata = response.metadata;
+          _error = null;
+          _isLoadingNews = false;
         });
       }
     } catch (e) {
-      print('💥 Error loading news: $e'); // Debug
-      setState(() {
-        _isLoadingNews = false; // Make sure this always runs
-      });
+      print('💥 Error loading news: $e');
+
+      // ALWAYS set loading to false, even on error
+      if (mounted) { // ADD: Check if widget is still mounted
+        setState(() {
+          _newsArticles = []; // Empty list on error
+          _error = e.toString();
+          _isLoadingNews = false;
+        });
+
+        // Optional: Show error to user (only for serious errors)
+        if (!e.toString().contains('timeout')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('News temporarily unavailable'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -343,14 +371,20 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: DashboardCard(
                 title: 'News Feed',
-                subtitle: '${_newsArticles.length} updates',
+                subtitle: _isLoadingNews
+                    ? 'Loading...'
+                    : _newsArticles.isEmpty
+                    ? 'No updates'
+                    : '${_newsArticles.length} updates',
                 icon: Icons.article_rounded,
                 gradientColors: [
                   Theme.of(context).colorScheme.tertiary,
                   Theme.of(context).colorScheme.primary,
                 ],
                 isLoading: _isLoadingNews,
-                onTap: _isLoadingNews ? null : () => _navigateToNews(),
+                onTap: _isLoadingNews
+                    ? null
+                    : () => _navigateToNews(), // Only disable when loading
               ),
             ),
           ],
@@ -519,12 +553,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _navigateToNews() {
+    // Pass refresh parameter to ensure fresh data
     Navigator.push(
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) => NewsScreen(
-          profession: _profession,  // Pass profession
-          location: 'India',        // Pass location
+          profession: _profession,
+          location: 'India',
+          forceRefresh: _newsArticles.isEmpty, // Refresh if no articles
         ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return SlideTransition(
