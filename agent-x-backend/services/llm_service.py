@@ -29,6 +29,8 @@ class LLMService:
     async def process_message(self, firebase_uid: str, message: str, context: str, profession: str) -> Dict[str, Any]:
         """Process user message with LLM and function calling"""
         try:
+            self._current_profession = profession
+            self._current_location = "India"  #TODO: make this dynamic too
             # Build system prompt with context
             system_prompt = self._build_system_prompt(profession, context)
 
@@ -172,13 +174,20 @@ Be conversational and helpful. Reference their profession when relevant."""
                     result = await self.calendar_functions.execute(name, firebase_uid, arguments)
                 elif name in ["save_user_info", "get_user_info"]:
                     result = await self.memory_functions.execute(name, firebase_uid, arguments)
-                elif name in ["get_recent_news", "get_news_insights"]:  # ADD THIS LINE
-                    result = await self.news_functions.execute(name, firebase_uid, arguments)  # ADD THIS LINE
+                elif name in ["get_recent_news", "get_news_insights"]:
+                    # ADD PROFESSION TO ARGUMENTS
+                    enhanced_arguments = {
+                        **arguments,
+                        'profession': getattr(self, '_current_profession', 'Professional'),  # Pass profession
+                        'location': getattr(self, '_current_location', 'India')  # Pass location
+                    }
+                    result = await self.news_functions.execute(name, firebase_uid, enhanced_arguments)
                 else:
                     result = {"error": f"Unknown function: {name}"}
 
                 function_results.append({"function": name, "result": result})
 
+                # Track successful executions for metadata
                 if result.get("success"):
                     executed_functions.append({"name": name, "result": result})
 
@@ -191,7 +200,7 @@ Be conversational and helpful. Reference their profession when relevant."""
         # Generate natural response with LLM based on function results
         response = await self._generate_natural_response(function_results, messages)
 
-        return response, executed_functions  # ✅ Return both response and executed functions
+        return response, executed_functions  # Return both response and executed functions
 
 
     async def _generate_natural_response(self, function_results: List[Dict], original_messages: List[Dict]) -> str:

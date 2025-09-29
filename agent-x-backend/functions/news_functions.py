@@ -29,17 +29,26 @@ class NewsFunctions(BaseFunctionExecutor):
     async def _get_recent_news(self, firebase_uid: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Get recent news for the user"""
         try:
-            # DEBUG: Add logging to see what's happening
-            logger.info(f"🔍 Getting user profile for Firebase UID: {firebase_uid}")
+            # SMART FIX: Try to get profession from multiple sources
+            profession = "Professional"  # Default fallback
+            location = "India"
 
-            # Get user profile
-            user_profile = get_user_profile_by_uuid(firebase_uid)
-            logger.info(f"👤 User profile result: {user_profile}")
+            # Method 1: Check if arguments contain profession (from main chat context)
+            if 'profession' in arguments:
+                profession = arguments['profession']
+                logger.info(f"🎯 Using profession from arguments: {profession}")
 
-            profession = user_profile.get('profession', 'Professional') if user_profile else 'Professional'
-            location = user_profile.get('location', 'India') if user_profile else 'India'
+            # Method 2: Try database as fallback
+            else:
+                logger.info(f"🔍 Getting user profile from database for Firebase UID: {firebase_uid}")
+                user_profile = get_user_profile_by_uuid(firebase_uid)
+                logger.info(f"👤 Database user profile: {user_profile}")
 
-            logger.info(f"📋 Using profession: {profession}, location: {location}")
+                if user_profile:
+                    profession = user_profile.get('profession', 'Professional')
+                    location = user_profile.get('location', 'India')
+
+            logger.info(f"📋 Final values: profession={profession}, location={location}")
 
             # Get days back from arguments
             days_back = arguments.get('days_back', 3)

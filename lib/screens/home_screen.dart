@@ -87,7 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
         location: 'India',
         limit: 6,
       ).timeout(
-        const Duration(seconds: 15), // 15 second timeout
+        const Duration(seconds: 30), // 30 second timeout
         onTimeout: () {
           print('⏰ News loading timed out for home screen');
           throw TimeoutException('News loading timed out', const Duration(seconds: 15));

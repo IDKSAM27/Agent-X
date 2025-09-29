@@ -1143,5 +1143,20 @@ async def root():
         "news_service": "active"
     }
 
+@app.get("/debug/user_profile/{firebase_uid}")
+async def debug_user_profile(firebase_uid: str):
+    """Debug endpoint to check user profile"""
+    try:
+        from database.operations import get_user_profile_by_uuid
+        profile = get_user_profile_by_uuid(firebase_uid)
+        return {
+            "firebase_uid": firebase_uid,
+            "profile": profile,
+            "profession": profile.get('profession') if profile else None
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
