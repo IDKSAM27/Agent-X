@@ -1157,6 +1157,61 @@ async def debug_user_profile(firebase_uid: str):
     except Exception as e:
         return {"error": str(e)}
 
+# Run this to fix the profession capitalization
+@app.post("/admin/fix_professions")
+async def fix_existing_professions():
+    """One-time fix for existing profession capitalization"""
+    try:
+        # Fix Firestore
+        import firebase_admin
+        from firebase_admin import firestore
+
+        db = firestore.client()
+        users_ref = db.collection('users')
+        docs = users_ref.stream()
+
+        updated_count = 0
+        for doc in docs:
+            data = doc.to_dict()
+            if 'profession' in data:
+                old_profession = data['profession']
+                # Capitalize each word
+                new_profession = old_profession.lower().title()
+
+                if old_profession != new_profession:
+                    users_ref.document(doc.id).update({'profession': new_profession})
+                    updated_count += 1
+                    print(f"Updated {doc.id}: '{old_profession}' → '{new_profession}'")
+
+        # Also fix SQLite database
+        import sqlite3
+        conn = sqlite3.connect('agent_x.db')  # Your DB path
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT firebase_uid, profession FROM users WHERE profession IS NOT NULL")
+        users = cursor.fetchall()
+
+        for firebase_uid, profession in users:
+            new_profession = profession.lower().title() if profession else profession
+            if profession != new_profession:
+                cursor.execute(
+                    "UPDATE users SET profession = ? WHERE firebase_uid = ?",
+                    (new_profession, firebase_uid)
+                )
+                updated_count += 1
+
+        conn.commit()
+        conn.close()
+
+        return {
+            "success": True,
+            "message": f"Updated {updated_count} user professions",
+            "updated_count": updated_count
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
