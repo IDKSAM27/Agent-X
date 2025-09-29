@@ -353,8 +353,8 @@ class SmartNewsService:
             # If no cache, get from regular news context (which may have its own cache)
             context = await self.get_news_context_for_chat(profession, location, days_back)
 
-            # Cache for 30 minutes (aggressive caching for chat)
-            await self.cache_manager.set(cache_key, context, ttl_hours=0.5)
+            # FIX: Use your existing cache API (without ttl_hours parameter)
+            await self.cache_manager.set(cache_key, context)
 
             return context
 

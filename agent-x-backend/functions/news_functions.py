@@ -29,20 +29,29 @@ class NewsFunctions(BaseFunctionExecutor):
     async def _get_recent_news(self, firebase_uid: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Get recent news for the user"""
         try:
+            # DEBUG: Add logging to see what's happening
+            logger.info(f"🔍 Getting user profile for Firebase UID: {firebase_uid}")
+
             # Get user profile
             user_profile = get_user_profile_by_uuid(firebase_uid)
+            logger.info(f"👤 User profile result: {user_profile}")
+
             profession = user_profile.get('profession', 'Professional') if user_profile else 'Professional'
             location = user_profile.get('location', 'India') if user_profile else 'India'
+
+            logger.info(f"📋 Using profession: {profession}, location: {location}")
 
             # Get days back from arguments
             days_back = arguments.get('days_back', 3)
 
-            # Get news context
+            # Use the fast method with fixed caching
             news_context = await self.news_service.get_news_context_for_chat_fast(
                 profession=profession,
                 location=location,
                 days_back=days_back
             )
+
+            logger.info(f"📰 News context loaded: {news_context.get('total_articles', 0)} articles for {profession}")
 
             if news_context.get('total_articles', 0) > 0:
                 # Format for chat response
@@ -83,6 +92,7 @@ class NewsFunctions(BaseFunctionExecutor):
                 )
 
         except Exception as e:
+            logger.error(f"❌ Error in _get_recent_news: {e}")
             return self._error_response(f"Failed to get recent news: {str(e)}")
 
     async def _get_news_insights(self, firebase_uid: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
