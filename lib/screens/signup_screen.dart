@@ -101,10 +101,7 @@ class _SignUpScreenState extends State<SignUpScreen>
   }
 
   void _validateProfession() {
-    String profession = _professionController.text.trim();
-    profession = profession.toLowerCase().split(' ').map((word) =>
-    word.isEmpty ? word : word[0].toUpperCase() + word.substring(1)
-    ).join(' ');
+    final profession = _professionController.text.trim();
     final isValid = profession.isNotEmpty && profession.length >= 2;
     if (isValid != _isProfessionValid) {
       setState(() => _isProfessionValid = isValid);
