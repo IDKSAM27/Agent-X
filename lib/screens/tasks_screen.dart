@@ -470,12 +470,11 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
         margin: EdgeInsets.only(
           bottom: MediaQuery.of(context).padding.bottom + 16,
         ),
-        child: FloatingActionButton.extended(
+        child: FloatingActionButton(
           onPressed: _showCreateTaskBottomSheet,
-          icon: const Icon(Icons.add),
-          label: const Text('New Task'),
           backgroundColor: Theme.of(context).colorScheme.primary,
           heroTag: null,
+          child: const Icon(Icons.add),
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,

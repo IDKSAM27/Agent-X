@@ -269,13 +269,11 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
         margin: EdgeInsets.only(
           bottom: MediaQuery.of(context).padding.bottom + 16,
         ),
-        child: FloatingActionButton.extended(
+        child: FloatingActionButton(
           onPressed: _showCreateEventDialog,
-          icon: const Icon(Icons.add),
-          label: const Text('New Event'),
           backgroundColor: Theme.of(context).colorScheme.primary,
-          // Disable hero animation for better performance
           heroTag: null,
+          child: const Icon(Icons.add),
         ),
       ),
 
