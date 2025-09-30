@@ -90,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const Duration(seconds: 30), // 30 second timeout
         onTimeout: () {
           print('⏰ News loading timed out for home screen');
-          throw TimeoutException('News loading timed out', const Duration(seconds: 40));
+          throw TimeoutException('News loading timed out', const Duration(seconds: 90));
         },
       );
 

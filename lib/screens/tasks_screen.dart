@@ -469,6 +469,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
         duration: const Duration(milliseconds: 200),
         margin: EdgeInsets.only(
           bottom: MediaQuery.of(context).padding.bottom + 16,
+          right: MediaQuery.of(context).padding.right + 16,
         ),
         child: FloatingActionButton(
           onPressed: _showCreateTaskBottomSheet,

@@ -268,6 +268,7 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
         duration: const Duration(milliseconds: 200), // Shorter animation
         margin: EdgeInsets.only(
           bottom: MediaQuery.of(context).padding.bottom + 16,
+          right: MediaQuery.of(context).padding.right + 16,
         ),
         child: FloatingActionButton(
           onPressed: _showCreateEventDialog,
