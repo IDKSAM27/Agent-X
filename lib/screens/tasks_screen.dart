@@ -478,7 +478,7 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           heroTag: null,
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: RefreshIndicator(
         onRefresh: _loadTasksFromBackend,
         child: ListView(

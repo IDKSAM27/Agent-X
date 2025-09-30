@@ -279,7 +279,7 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
         ),
       ),
 
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: RefreshIndicator(
         onRefresh: _loadEventsFromBackend,
         child: ListView(
