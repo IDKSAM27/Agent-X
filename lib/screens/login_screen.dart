@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../screens/signup_screen.dart';
 import '../widgets/app_logo.dart';
 import '../core/constants/app_constants.dart';
@@ -423,10 +424,28 @@ class _LoginScreenState extends State<LoginScreen>
     if (mounted) _loadingController.repeat();
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
+
+      // FIX: Check and set display name if missing
+      final user = userCredential.user;
+      if (user != null && (user.displayName == null || user.displayName!.isEmpty)) {
+        final displayName = _emailController.text.trim().split('@')[0];
+        await user.updateDisplayName(displayName);
+        await user.reload();
+
+        print('✅ Fixed missing display name on sign-in: $displayName');
+
+        // ALSO UPDATE FIRESTORE
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .set({
+          'displayName': displayName,
+        }, SetOptions(merge: true));
+      }
 
       if (mounted) {
         _showSuccessSnackBar('Welcome back!');

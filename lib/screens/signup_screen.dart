@@ -562,7 +562,6 @@ class _SignUpScreenState extends State<SignUpScreen>
     setState(() => _isLoading = true);
     _loadingController.repeat();
 
-    // Add haptic feedback
     HapticFeedback.lightImpact();
 
     try {
@@ -573,12 +572,20 @@ class _SignUpScreenState extends State<SignUpScreen>
         password: _passwordController.text.trim(),
       );
 
+      // FIX: Set display name from email
+      final displayName = _emailController.text.trim().split('@')[0];
+      await userCredential.user!.updateDisplayName(displayName);
+      await userCredential.user!.reload();
+
+      print('✅ Display name set to: $displayName');
+
       // Save user profile to Firestore
       await FirebaseFirestore.instance
           .collection('users')
           .doc(userCredential.user!.uid)
           .set({
         'email': _emailController.text.trim(),
+        'displayName': displayName, // ALSO SAVE TO FIRESTORE
         'profession': _professionController.text.trim(),
         'created_at': FieldValue.serverTimestamp(),
         'updated_at': FieldValue.serverTimestamp(),
@@ -586,7 +593,6 @@ class _SignUpScreenState extends State<SignUpScreen>
 
       if (mounted) {
         _showSuccessSnackBar('Account created successfully!');
-        // Pop back to login screen - AuthGate will handle navigation
         Navigator.pop(context);
       }
     } on FirebaseAuthException catch (e) {
