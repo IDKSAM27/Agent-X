@@ -20,7 +20,7 @@ class HybridOrchestrator {
           headers: ApiConfig.defaultHeaders,
           connectTimeout: const Duration(seconds: 90), //TODO: og was 10 sec, change it afterwards
           receiveTimeout: const Duration(seconds: 90),
-          sendTimeout: const Duration(seconds: 30),
+          sendTimeout: const Duration(seconds: 90),
         )),
         _localCoordinator = AgentCoordinator() {
 

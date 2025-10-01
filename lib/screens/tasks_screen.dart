@@ -44,8 +44,8 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
 
   final Dio _dio = Dio(BaseOptions(
     baseUrl: ApiConfig.baseUrl,
-    connectTimeout: const Duration(seconds: 30),
-    receiveTimeout: const Duration(seconds: 30),
+    connectTimeout: const Duration(seconds: 90),
+    receiveTimeout: const Duration(seconds: 90),
   ));
 
   final List<String> _categories = ['All', 'Work', 'Personal', 'Urgent'];

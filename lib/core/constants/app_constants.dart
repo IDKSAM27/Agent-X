@@ -43,6 +43,6 @@ class AppConstants {
   static EdgeInsets get cardPadding => const EdgeInsets.all(spacingM);
 
   // API Configuration
-  static const Duration apiTimeout = Duration(seconds: 30);
+  static const Duration apiTimeout = Duration(seconds: 90);
   static const int maxRetries = 3;
 }
