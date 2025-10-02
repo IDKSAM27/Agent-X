@@ -63,24 +63,24 @@ class NewsFunctions(BaseFunctionExecutor):
             logger.info(f"📰 News context loaded: {news_context.get('total_articles', 0)} articles for {profession}")
 
             if news_context.get('total_articles', 0) > 0:
-                # Format for chat response
+                # Format for chat response with proper Markdown spacing
                 response_text = f"📰 **Recent news for {profession}s:**\n\n"
 
-                # Add top articles
+                # Add top articles with proper line breaks
                 for category, articles in news_context.get('categories', {}).items():
                     if articles:
                         category_name = category.replace('_', ' ').title()
-                        response_text += f"**{category_name}:**\n"
+                        response_text += f"**{category_name}:**\n\n"  # Double newline after header
                         for article in articles[:2]:  # Top 2 per category
-                            response_text += f"• {article['title']}\n"
-                        response_text += "\n"
+                            response_text += f"• {article['title']}  \n"  # Two spaces + newline for hard break
+                        response_text += "\n"  # Single newline between categories
 
-                # Add actionable items
+                # Add actionable items with proper spacing
                 if news_context.get('local_events'):
-                    response_text += f"🎯 **{len(news_context['local_events'])} local events** you might want to attend\n"
+                    response_text += f"🎯 **{len(news_context['local_events'])} local events** you might want to attend  \n"
 
                 if news_context.get('learning_opportunities'):
-                    response_text += f"📚 **{len(news_context['learning_opportunities'])} learning opportunities** found\n"
+                    response_text += f"📚 **{len(news_context['learning_opportunities'])} learning opportunities** found  \n"
 
                 response_text += "\nWould you like me to create tasks or calendar events from any of these?"
 
@@ -107,10 +107,26 @@ class NewsFunctions(BaseFunctionExecutor):
     async def _get_news_insights(self, firebase_uid: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Get news insights and trends"""
         try:
-            # Get user profile
-            user_profile = get_user_profile_by_uuid(firebase_uid)
-            profession = user_profile.get('profession', 'Professional') if user_profile else 'Professional'
-            location = user_profile.get('location', 'India') if user_profile else 'India'
+            # FIX: Use the same profession logic as _get_recent_news
+            profession = "Professional"  # Default fallback
+            location = "India"
+
+            # Method 1: Check if arguments contain profession (from main chat context)
+            if 'profession' in arguments:
+                profession = arguments['profession']
+                logger.info(f"🎯 Using profession from arguments: {profession}")
+
+            # Method 2: Try database as fallback
+            else:
+                logger.info(f"🔍 Getting user profile from database for Firebase UID: {firebase_uid}")
+                user_profile = get_user_profile_by_uuid(firebase_uid)
+                logger.info(f"👤 Database user profile: {user_profile}")
+
+                if user_profile:
+                    profession = user_profile.get('profession', 'Professional')
+                    location = user_profile.get('location', 'India')
+
+            logger.info(f"📋 Final values for insights: profession={profession}, location={location}")
 
             # Get contextual news
             news_response = await self.news_service.get_contextual_news(
@@ -122,6 +138,7 @@ class NewsFunctions(BaseFunctionExecutor):
             articles = news_response.get('articles', [])
 
             if articles:
+                # Format with proper Markdown spacing
                 insights_text = f"🔍 **News insights for {profession}s:**\n\n"
 
                 # Group by categories
@@ -132,23 +149,23 @@ class NewsFunctions(BaseFunctionExecutor):
                         categories[cat] = []
                     categories[cat].append(article)
 
-                # Generate insights
+                # Generate insights with proper line breaks
                 for category, cat_articles in categories.items():
                     if cat_articles:
                         category_name = category.replace('_', ' ').title()
-                        insights_text += f"**{category_name} ({len(cat_articles)} articles):**\n"
+                        insights_text += f"**{category_name} ({len(cat_articles)} articles):**\n\n"  # ✅ Double newline
 
                         # Show high-relevance articles
                         high_relevance = [a for a in cat_articles if a.get('relevance_score', 0) > 0.7]
                         if high_relevance:
-                            insights_text += f"• {len(high_relevance)} highly relevant updates\n"
+                            insights_text += f"• {len(high_relevance)} highly relevant updates  \n"  # ✅ Two spaces
 
                         # Show most recent
                         if cat_articles:
                             latest = max(cat_articles, key=lambda x: x.get('published_at', ''))
-                            insights_text += f"• Latest: {latest.get('title', '')[:60]}...\n"
+                            insights_text += f"• Latest: {latest.get('title', '')[:60]}...  \n"  # ✅ Two spaces
 
-                        insights_text += "\n"
+                        insights_text += "\n"  # Single newline between categories
 
                 insights_text += "💡 I can help you create learning tasks or add important events to your calendar!"
 
@@ -166,4 +183,5 @@ class NewsFunctions(BaseFunctionExecutor):
                 )
 
         except Exception as e:
+            logger.error(f"❌ Error in _get_news_insights: {e}")
             return self._error_response(f"Failed to get news insights: {str(e)}")
