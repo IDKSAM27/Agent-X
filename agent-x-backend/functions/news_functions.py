@@ -153,17 +153,17 @@ class NewsFunctions(BaseFunctionExecutor):
                 for category, cat_articles in categories.items():
                     if cat_articles:
                         category_name = category.replace('_', ' ').title()
-                        insights_text += f"**{category_name} ({len(cat_articles)} articles):**\n\n"  # ✅ Double newline
+                        insights_text += f"**{category_name} ({len(cat_articles)} articles):**\n\n"  # Double newline
 
                         # Show high-relevance articles
                         high_relevance = [a for a in cat_articles if a.get('relevance_score', 0) > 0.7]
                         if high_relevance:
-                            insights_text += f"• {len(high_relevance)} highly relevant updates  \n"  # ✅ Two spaces
+                            insights_text += f"• {len(high_relevance)} highly relevant updates  \n"  # Two spaces
 
-                        # Show most recent
+                        # Show most relevant article with full title
                         if cat_articles:
-                            latest = max(cat_articles, key=lambda x: x.get('published_at', ''))
-                            insights_text += f"• Latest: {latest.get('title', '')[:60]}...  \n"  # ✅ Two spaces
+                            top_article = max(cat_articles, key=lambda x: x.get('relevance_score', 0))
+                            insights_text += f"• Top story: {top_article.get('title', '')}  \n"
 
                         insights_text += "\n"  # Single newline between categories
 
