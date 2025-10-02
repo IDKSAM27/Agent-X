@@ -35,6 +35,7 @@ dependencies:
   flutter_riverpod: ^2.4.9 # I may remove this, I already use Bloc for animation
   json_annotation: ^4.8.1
   logger: ^2.0.2+1
+  flutter_markdown: ^0.6.18
 
 dev_dependencies:
   flutter_test:

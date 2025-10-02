@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/chat_message.dart';
 import '../core/constants/app_constants.dart';
 import 'typing_indicator.dart';
@@ -155,12 +156,30 @@ class EnhancedChatBubble extends StatelessWidget {
               AppConstants.spacingM,
               AppConstants.spacingS,
             ),
-            child: SelectableText(
-              message.content,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                height: 1.4,
+            child: MarkdownBody(
+              data: message.content,
+              styleSheet: MarkdownStyleSheet(
+                p: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
+                strong: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+                listBullet: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                h1: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
+                h2: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
+              selectable: true,
             ),
           ),
           if (message.metadata!['show_calendar'] == true)
@@ -169,7 +188,7 @@ class EnhancedChatBubble extends StatelessWidget {
       );
     }
 
-    // Default: just show text
+    // Default: markdown rendering for all messages
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppConstants.spacingM,
@@ -177,17 +196,44 @@ class EnhancedChatBubble extends StatelessWidget {
         AppConstants.spacingM,
         AppConstants.spacingS,
       ),
-      child: SelectableText(
-        message.content,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: isUser
-              ? Colors.white
-              : Theme.of(context).colorScheme.onSurfaceVariant,
-          height: 1.4,
+      child: MarkdownBody(
+        data: message.content,
+        styleSheet: MarkdownStyleSheet(
+          p: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: isUser
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+            height: 1.4,
+          ),
+          strong: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: isUser
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+          listBullet: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: isUser
+                ? Colors.white.withOpacity(0.9)
+                : Theme.of(context).colorScheme.primary,
+          ),
+          h1: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: isUser
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w700,
+          ),
+          h2: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: isUser
+                ? Colors.white
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
         ),
+        selectable: true,
       ),
     );
   }
+
 
   // --- ACTION BUTTON GENERATOR ---
   List<Widget> _buildActionButtons(BuildContext context, Map<String, dynamic> meta) {
