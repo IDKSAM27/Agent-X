@@ -623,7 +623,7 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       if (existingEvent != null) {
         _eventTitleController!.text = existingEvent['title'] ?? '';
         _eventSelectedTime = _parseTimeString(existingEvent['time']);
-        _eventSelectedCategory = existingEvent['type'] ?? 'general';
+        _eventSelectedCategory = existingEvent['category'] ?? 'general';
         _eventIsAllDay = existingEvent['isAllDay'] ?? false;
       }
     }
