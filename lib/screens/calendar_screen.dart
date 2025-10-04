@@ -1041,82 +1041,80 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       ),
     );
   }
-  Future<void> _saveEvent(String title, String timeString, Map<String, dynamic>? existingEvent) async {
+  Future<void> _saveEvent(String title, String time, Map<String, dynamic>? existingEvent) async {
     try {
-      final token = await _getFirebaseToken();
-      final selectedDate = _selectedDay ?? DateTime.now();
+      final selectedDate = _selectedDate;
 
-      // Parse the time string properly
-      final timeOfDay = timeString == 'All Day'
-          ? const TimeOfDay(hour: 0, minute: 0)
-          : _parseTimeString(timeString);
-
-      final startTime = timeString == 'All Day'
-          ? DateTime(selectedDate.year, selectedDate.month, selectedDate.day)
-          : DateTime(
+      // Combine date and time
+      DateTime eventDateTime;
+      if (_eventIsAllDay!) {
+        eventDateTime = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+      } else {
+        eventDateTime = DateTime(
           selectedDate.year,
           selectedDate.month,
           selectedDate.day,
-          timeOfDay.hour,
-          timeOfDay.minute
-      );
+          _eventSelectedTime!.hour,
+          _eventSelectedTime!.minute,
+        );
+      }
 
-      final eventData = {
-        "title": title,
-        "description": "",
-        "start_time": startTime.toIso8601String(),
-        "category": "general",
-        "priority": "medium",
-      };
+      final dio = Dio();
+      final token = await FirebaseAuth.instance.currentUser?.getIdToken();
 
-      Response response;
-
-      if (existingEvent == null) {
-        // Create new event
-        response = await _dio.post(
-          '/api/events',
-          data: eventData,
+      if (existingEvent != null) {
+        // UPDATE EVENT - Include category
+        await dio.put(
+          '${ApiConfig.baseUrl}/api/events/${existingEvent['id']}',
+          data: {
+            'title': title,
+            'description': '',
+            'start_time': eventDateTime.toIso8601String(),
+            'end_time': null,
+            'category': _eventSelectedCategory, // ADD THIS
+            'priority': 'medium',
+            'location': null,
+          },
           options: Options(
-            headers: {
-              ...ApiConfig.defaultHeaders,
-              'Authorization': 'Bearer $token',
-            },
+            headers: {'Authorization': 'Bearer $token'},
           ),
         );
       } else {
-        // Update existing event
-        final eventId = existingEvent['id'];
-        response = await _dio.put(
-          '/api/events/$eventId',
-          data: eventData,
+        // CREATE EVENT - Include category
+        await dio.post(
+          '${ApiConfig.baseUrl}/api/events',
+          data: {
+            'title': title,
+            'description': '',
+            'start_time': eventDateTime.toIso8601String(),
+            'end_time': null,
+            'category': _eventSelectedCategory, // Added this
+            'priority': 'medium',
+            'location': null,
+          },
           options: Options(
-            headers: {
-              ...ApiConfig.defaultHeaders,
-              'Authorization': 'Bearer $token',
-            },
+            headers: {'Authorization': 'Bearer $token'},
           ),
         );
       }
 
-      if (response.statusCode == 200 && response.data['success'] == true) {
-        await _loadEventsFromBackend();
+      // Reload events
+      _loadEventsFromBackend();
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(existingEvent == null ? 'Event created!' : 'Event updated!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      }
-
-    } catch (e) {
-      print('❌ Error saving event: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save event: ${e.toString()}'),
+            content: Text(existingEvent == null ? 'Event created!' : 'Event updated!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving event: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save event: $e'),
             backgroundColor: Colors.red,
           ),
         );
