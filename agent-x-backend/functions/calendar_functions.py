@@ -103,7 +103,7 @@ class CalendarFunctions(BaseFunctionExecutor):
             # Create summary for natural response
             event_summaries.append(f"📅 **{title}** - {start_time}")
 
-        detailed_message = f"📅 **Your Upcoming Events ({len(events)} total):**\n\n" + "\n".join(event_summaries)
+        detailed_message = f"📅 **Your Upcoming Events ({len(events)} total):**\n\n" + "\n\n".join(event_summaries)
 
         return self._success_response(
             detailed_message,

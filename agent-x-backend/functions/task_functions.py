@@ -83,7 +83,7 @@ class TaskFunctions(BaseFunctionExecutor):
                 {"tasks": [], "count": 0}
             )
 
-        # ✅ Fixed unpacking to match database schema
+        # Fixed unpacking to match database schema
         formatted_tasks = []
         task_summaries = []
 
@@ -130,7 +130,7 @@ class TaskFunctions(BaseFunctionExecutor):
         else:
             message_header = f"📋 **All Your Tasks ({total_tasks} total):**\n*{completed_count} completed, {pending_count} pending*"
 
-        detailed_message = f"{message_header}\n\n" + "\n".join(task_summaries)
+        detailed_message = f"{message_header}\n\n" + "\n\n".join(task_summaries)
 
         return self._success_response(
             detailed_message,
