@@ -85,7 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final response = await newsService.getContextualNews(
         profession: _profession,
         location: 'India',
-        limit: 6,
+        limit: 10,
       ).timeout(
         const Duration(seconds: 90), // 90 second timeout
         onTimeout: () {
@@ -490,7 +490,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           )
         else
-          ...(_newsArticles.take(3).map((article) => NewsCard(
+          ...(_newsArticles.take(9).map((article) => NewsCard(
             article: article,
             onTap: () => _showArticleDetails(article),
           )).toList()),
