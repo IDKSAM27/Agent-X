@@ -874,6 +874,7 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
                             _eventTitleController!.text,
                             timeString,
                             existingEvent,
+                            _eventSelectedCategory!,
                           );
 
                           _resetEventFormState();
@@ -894,8 +895,6 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       ),
     );
   }
-
-
 
   Widget _buildEventDialog({Map<String, dynamic>? existingEvent}) {
     final titleController = TextEditingController(
@@ -961,6 +960,7 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
                         titleController.text,
                         timeController.text,
                         existingEvent,
+                        _eventSelectedCategory!,
                       );
                       Navigator.pop(context);
                     }
@@ -1041,7 +1041,7 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       ),
     );
   }
-  Future<void> _saveEvent(String title, String timeString, Map<String, dynamic>? existingEvent) async {
+  Future<void> _saveEvent(String title, String timeString, Map<String, dynamic>? existingEvent, String category,) async {
     try {
       final token = await _getFirebaseToken();
       final selectedDate = _selectedDay ?? DateTime.now();
@@ -1065,7 +1065,7 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
         "title": title,
         "description": "",
         "start_time": startTime.toIso8601String(),
-        "category": "general",
+        "category": category,
         "priority": "medium",
       };
 
