@@ -83,6 +83,9 @@
 
 
 ## Installation
+
+### [Firebase Setup Instruction](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md) (Go through the instructions for Firebase setup)
+
 ### Prerequisites
 
 - `Flutter SDK (>=3.0.0)`
@@ -136,6 +139,7 @@ FIREBASE_API_KEY=
 GEMINI_API_KEY=
 FIREBASE_SERVICE_ACCOUNT_KEY=./firebase-service-account.json
 ```
+> [Firebase setup instructions (required!)](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md)
 
 ### Flutter Files required
 

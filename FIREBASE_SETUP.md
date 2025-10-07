@@ -4,15 +4,15 @@
 
 ## Table of Contents
 
-1. Prerequisites
-2. Creating Firebase Project
-3. Configuring Authentication
-4. Setting Up Android App
-5. Configuring Flutter
-6. Backend Service Account Setup
-7. Environment Variables
-8. Verification
-9. Troubleshooting
+1. [Prerequisites](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md#prerequisites)
+2. [Creating Firebase Project](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md#creating-firebase-project)
+3. [Configuring Authentication](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md#configuring-authentication)
+4. [Setting Up Android App](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md#setting-up-android-app)
+5. [Configuring Flutter](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md#configuring-flutter)
+6. [Backend Service Account Setup](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md#backend-service-account-setup)
+7. [Environment Variables](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md#environment-variables)
+8. [Verification](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md#verification)
+9. [Troubleshooting](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md#troubleshooting)
 
 ## Prerequisites
 
