@@ -1,3 +1,21 @@
+<div align="center">
+   <img src="assets/icons/app_icon.png" alt="Agent-X Logo" width="180" 
+       style="border-radius: 25px; box-shadow: 0 6px 12px rgba(0,0,0,0.15); margin-bottom: 20px;"/>
+  
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+
 <h1 align="center">Agent-X : AI-Powered Personal Assistant</h1>
 
 <div align="center">
