@@ -168,7 +168,7 @@ Agent-X/
 
 > Agent-X is a work-in-progress project. Contributions, suggestions, and feedback are welcome!
 
-How to contribute:
+#### How to contribute:
 
 - Fork the [repository](https://github.com/IDKSAM27/Agent-X)
 - Create a feature branch (git checkout -b feature/AmazingFeature)
@@ -177,7 +177,7 @@ How to contribute:
 - Open a Pull Request
 
 ## Development Notes
-Known Issues
+#### Known Issues
 
 - News loading can be slow on first request (caching improves subsequent loads)
 - Profession data syncs between Firebase and SQLite (migration planned)
@@ -189,7 +189,7 @@ Known Issues
 
 ## Author
 
-**Sampreet Patil**
+#### Sampreet Patil
 
     GitHub: @IDKSAM27
     Email: sampreetpatil270@gmail.com
