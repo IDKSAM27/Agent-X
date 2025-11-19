@@ -142,6 +142,7 @@ FIREBASE_API_KEY=
 ```bash
 GEMINI_API_KEY=
 FIREBASE_SERVICE_ACCOUNT_KEY=./firebase-service-account.json
+DATABASE_URL=your postgres string/database url
 ```
 > [Firebase setup instructions (required!)](https://github.com/IDKSAM27/Agent-X/blob/main/FIREBASE_SETUP.md)
 
