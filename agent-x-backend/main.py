@@ -9,7 +9,6 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 import logging
 import uvicorn
-import sqlite3
 import firebase_admin
 import asyncio
 from firebase_admin import credentials, auth as firebase_auth
@@ -25,7 +24,8 @@ from database.operations import (
     save_event, get_all_events,
     save_conversation, get_conversation_history, get_all_conversations,
     update_task_completion_in_db, update_task_in_db, delete_task_from_db,
-    save_enhanced_event, update_event_in_db, delete_event_from_db
+    save_enhanced_event, update_event_in_db, delete_event_from_db,
+    ensure_user_exists
 )
 from routes.news_router import router as news_router
 from services.news_scheduler import news_scheduler
@@ -50,7 +50,6 @@ app.add_middleware(
 app.include_router(news_router)
 
 # Absolute DB path for reliability
-DB_PATH = os.path.join(os.path.dirname(__file__), "agent_x.db")
 
 # Initialize Firebase Admin SDK with better error handling
 def initialize_firebase():
@@ -133,82 +132,6 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(HTTPBea
 
 
 
-def init_database():
-    """Initialize database with proper schema"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    # Users table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            firebase_uid TEXT UNIQUE NOT NULL,
-            display_name TEXT,
-            profession TEXT,
-            email TEXT,
-            email_verified INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL,
-            last_login TEXT
-        )
-    ''')
-
-    # Tasks table with ALL required columns
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            firebase_uid TEXT NOT NULL,
-            title TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            priority TEXT DEFAULT 'medium',
-            category TEXT DEFAULT 'general',
-            due_date TEXT,
-            is_completed INTEGER DEFAULT 0,
-            progress REAL DEFAULT 0.0,
-            tags TEXT DEFAULT '[]',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    ''')
-
-    # Events table with ALL required columns
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            firebase_uid TEXT NOT NULL,
-            title TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            start_time TEXT NOT NULL,
-            end_time TEXT,
-            category TEXT DEFAULT 'general',
-            priority TEXT DEFAULT 'medium',
-            location TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    ''')
-
-    # Conversations table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS conversations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            firebase_uid TEXT NOT NULL,
-            user_message TEXT NOT NULL,
-            assistant_response TEXT NOT NULL,
-            agent_name TEXT NOT NULL,
-            intent TEXT,
-            timestamp TEXT NOT NULL
-        )
-    ''')
-
-    conn.commit()
-    conn.close()
-    logger.info("✅ Database initialized with complete schema")
-
-
-init_database()
-
-# migrate_database_schema()
-# logger.info("✅ Database schema migration completed")
 
 class AgentRequest(BaseModel):
     message: str
@@ -238,7 +161,12 @@ async def process_agent(request: Request, current_user: dict = Depends(get_curre
         logger.info(f"🤖 Processing: '{message}' from Firebase user {firebase_uid} (profession: {profession})")
 
         # Ensure user exists in local database
-        ensure_user_exists_in_db(current_user)
+        ensure_user_exists(
+            firebase_uid=current_user["firebase_uid"],
+            email=current_user.get("email", ""),
+            name=current_user.get("name", ""),
+            profession=current_user.get("profession", "")
+        )
 
         # Get conversation context
         recent_conversations = get_conversation_history(firebase_uid, limit=3)
@@ -327,45 +255,6 @@ async def _fallback_rule_based_processing(message: str, firebase_uid: str, profe
     else:
         return handle_general(message, firebase_uid, profession, context)
 
-def ensure_user_exists_in_db(user_data: dict):
-    """Ensure user exists in local database"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        # Check if user exists
-        cursor.execute("SELECT firebase_uid FROM users WHERE firebase_uid = ?",
-                       (user_data["firebase_uid"],))
-
-        if not cursor.fetchone():
-            # Add created_at when creating new user
-            now = datetime.now().isoformat()
-            cursor.execute('''
-                INSERT INTO users (firebase_uid, display_name, profession, email, email_verified, created_at, last_login)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                user_data["firebase_uid"],
-                user_data.get("name", ""),
-                user_data.get("profession", ""),
-                user_data.get("email", ""),
-                user_data.get("email_verified", False),
-                now,  # Add this
-                now   # Add this
-            ))
-            conn.commit()
-            logger.info(f"✅ Created local user record for Firebase UID: {user_data['firebase_uid']}")
-        else:
-            # Update last_login for existing user
-            cursor.execute("UPDATE users SET last_login = ? WHERE firebase_uid = ?",
-                           (datetime.now().isoformat(), user_data["firebase_uid"]))
-            conn.commit()
-
-        conn.close()
-
-    except Exception as e:
-        logger.error(f"❌ Error ensuring user exists: {e}")
-        if conn:
-            conn.close()
 
 
 def extract_name(message: str):
@@ -615,111 +504,6 @@ def update_task_completion_in_db(firebase_uid: str, task_id: int, completed: boo
     finally:
         conn.close()
 
-@app.get("/debug/names")
-async def debug_names():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM users')
-        users = cursor.fetchall()
-        conn.close()
-        return {"users": users, "db_path": DB_PATH}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/debug/events")
-async def debug_events():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM calendar_events')
-        events = cursor.fetchall()
-        conn.close()
-        return {"events": events, "db_path": DB_PATH}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/api/clear_memory")
-async def clear_memory_endpoint(request: Request, current_user: dict = Depends(get_current_user)):
-    firebase_uid = current_user["firebase_uid"]
-
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        # Clear data using Firebase UID
-        deleted_tasks = cursor.execute("DELETE FROM tasks WHERE firebase_uid = ?", (firebase_uid,)).rowcount
-        deleted_events = cursor.execute("DELETE FROM calendar_events WHERE firebase_uid = ?", (firebase_uid,)).rowcount
-        deleted_conversations = cursor.execute("DELETE FROM conversations WHERE firebase_uid = ?", (firebase_uid,)).rowcount
-
-        conn.commit()
-        conn.close()
-
-        logger.info(f"🗑️ Cleared data for Firebase UID {firebase_uid} - Tasks: {deleted_tasks}, Events: {deleted_events}, Conversations: {deleted_conversations}")
-
-        return {
-            "status": "success",
-            "message": "All data cleared successfully",
-            "deleted_counts": {
-                "tasks": deleted_tasks,
-                "events": deleted_events,
-                "conversations": deleted_conversations
-            }
-        }
-
-    except Exception as e:
-        logger.error(f"❌ Clear memory error: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
-@app.get("/debug/data_status/{firebase_uid}")
-async def debug_data_status(firebase_uid: str):
-    """Debug endpoint to check all data for a Firebase UID"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        # Count all data types using firebase_uid
-        cursor.execute("SELECT COUNT(*) FROM users WHERE firebase_uid = ?", (firebase_uid,))
-        user_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM tasks WHERE firebase_uid = ?", (firebase_uid,))
-        task_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM calendar_events WHERE firebase_uid = ?", (firebase_uid,))
-        event_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM conversations WHERE firebase_uid = ?", (firebase_uid,))
-        conv_count = cursor.fetchone()[0]
-
-        # Get actual data samples
-        cursor.execute("SELECT display_name FROM users WHERE firebase_uid = ? LIMIT 1", (firebase_uid,))
-        user_name = cursor.fetchone()
-
-        cursor.execute("SELECT title FROM tasks WHERE firebase_uid = ? LIMIT 3", (firebase_uid,))
-        sample_tasks = cursor.fetchall()
-
-        cursor.execute("SELECT title FROM calendar_events WHERE firebase_uid = ? LIMIT 3", (firebase_uid,))
-        sample_events = cursor.fetchall()
-
-        conn.close()
-
-        return {
-            "firebase_uid": firebase_uid,
-            "counts": {
-                "users": user_count,
-                "tasks": task_count,
-                "events": event_count,
-                "conversations": conv_count
-            },
-            "samples": {
-                "user_name": user_name[0] if user_name else None,
-                "tasks": [task[0] for task in sample_tasks],
-                "events": [event[0] for event in sample_events]
-            },
-            "db_path": DB_PATH
-        }
-    except Exception as e:
-        return {"error": str(e)}
 
 @app.post("/api/export_chat")
 async def export_chat_endpoint(request: Request, current_user: dict = Depends(get_current_user)):
@@ -758,35 +542,6 @@ async def export_chat_endpoint(request: Request, current_user: dict = Depends(ge
         logger.error(f"Export error: {e}")
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/memory/debug/{firebase_uid}")
-async def debug_memory_status(firebase_uid: str):
-    """Debug endpoint to check memory status"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        # Count conversations
-        cursor.execute('SELECT COUNT(*) FROM conversations WHERE firebase_uid = ?', (firebase_uid,))
-        conv_count = cursor.fetchone()[0]
-
-        # Get latest conversation
-        cursor.execute('''
-            SELECT timestamp, intent FROM conversations 
-            WHERE firebase_uid = ? ORDER BY timestamp DESC LIMIT 1
-        ''', (firebase_uid,))
-        latest = cursor.fetchone()
-
-        conn.close()
-
-        return {
-            "firebase_uid": firebase_uid,
-            "total_conversations": conv_count,
-            "latest_conversation": latest[0] if latest else None,
-            "latest_intent": latest[1] if latest else None,
-            "memory_status": "active" if conv_count > 0 else "empty"
-        }
-    except Exception as e:
-        return {"error": str(e)}
 
 # Conversation memory endpoints
 @app.get("/api/conversations/history/{firebase_uid}")
@@ -809,27 +564,6 @@ async def get_conversation_history_endpoint(firebase_uid: str, limit: int = 10):
         logger.error(f"Error fetching conversation history: {e}")
         return {"status": "error", "message": str(e)}
 
-@app.get("/debug/conversations/{firebase_uid}")
-async def debug_conversations(firebase_uid: str):
-    """Debug endpoint to view all conversations for a Firebase UID"""
-    try:
-        conversations = get_all_conversations(firebase_uid)
-        conv_list = []
-        for conv in conversations:
-            conv_id, user_msg, assistant_resp, agent_name, intent, timestamp, session_id = conv
-            conv_list.append({
-                "id": conv_id,
-                "user_message": user_msg,
-                "assistant_response": assistant_resp,
-                "agent_name": agent_name,
-                "intent": intent,
-                "timestamp": timestamp,
-                "session_id": session_id
-            })
-
-        return {"conversations": conv_list, "total": len(conv_list), "db_path": DB_PATH}
-    except Exception as e:
-        return {"error": str(e)}
 
 @app.get("/api/tasks")
 async def get_tasks(current_user: dict = Depends(get_current_user)):
@@ -1158,59 +892,6 @@ async def debug_user_profile(firebase_uid: str):
         return {"error": str(e)}
 
 # Run this to fix the profession capitalization
-@app.post("/admin/fix_professions")
-async def fix_existing_professions():
-    """One-time fix for existing profession capitalization"""
-    try:
-        # Fix Firestore
-        import firebase_admin
-        from firebase_admin import firestore
-
-        db = firestore.client()
-        users_ref = db.collection('users')
-        docs = users_ref.stream()
-
-        updated_count = 0
-        for doc in docs:
-            data = doc.to_dict()
-            if 'profession' in data:
-                old_profession = data['profession']
-                # Capitalize each word
-                new_profession = old_profession.lower().title()
-
-                if old_profession != new_profession:
-                    users_ref.document(doc.id).update({'profession': new_profession})
-                    updated_count += 1
-                    print(f"Updated {doc.id}: '{old_profession}' → '{new_profession}'")
-
-        # Also fix SQLite database
-        import sqlite3
-        conn = sqlite3.connect('agent_x.db')  # Your DB path
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT firebase_uid, profession FROM users WHERE profession IS NOT NULL")
-        users = cursor.fetchall()
-
-        for firebase_uid, profession in users:
-            new_profession = profession.lower().title() if profession else profession
-            if profession != new_profession:
-                cursor.execute(
-                    "UPDATE users SET profession = ? WHERE firebase_uid = ?",
-                    (new_profession, firebase_uid)
-                )
-                updated_count += 1
-
-        conn.commit()
-        conn.close()
-
-        return {
-            "success": True,
-            "message": f"Updated {updated_count} user professions",
-            "updated_count": updated_count
-        }
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 if __name__ == "__main__":
