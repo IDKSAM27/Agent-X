@@ -319,3 +319,79 @@ def ensure_user_exists(firebase_uid: str, email: str, name: str = None, professi
         except Exception as e:
             logger.error(f"❌ Error ensuring user exists: {e}")
             db.rollback()
+
+def delete_all_user_data(firebase_uid: str) -> dict:
+    with get_session() as db:
+        try:
+            # Delete tasks
+            tasks_deleted = db.query(Task).filter(Task.firebase_uid == firebase_uid).delete()
+            
+            # Delete events
+            events_deleted = db.query(Event).filter(Event.firebase_uid == firebase_uid).delete()
+            
+            # Delete conversations
+            convs_deleted = db.query(Conversation).filter(Conversation.firebase_uid == firebase_uid).delete()
+            
+            db.commit()
+            
+            logger.info(f"🗑️ Cleared data for {firebase_uid}: {tasks_deleted} tasks, {events_deleted} events, {convs_deleted} conversations")
+            
+            return {
+                "tasks": tasks_deleted,
+                "events": events_deleted,
+                "conversations": convs_deleted
+            }
+        except Exception as e:
+            logger.error(f"❌ Error clearing user data: {e}")
+            db.rollback()
+            raise e
+
+def get_user_data_status(firebase_uid: str) -> dict:
+    with get_session() as db:
+        try:
+            user_count = db.query(User).filter(User.firebase_uid == firebase_uid).count()
+            task_count = db.query(Task).filter(Task.firebase_uid == firebase_uid).count()
+            event_count = db.query(Event).filter(Event.firebase_uid == firebase_uid).count()
+            conv_count = db.query(Conversation).filter(Conversation.firebase_uid == firebase_uid).count()
+            
+            user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+            user_name = user.display_name if user else None
+            
+            sample_tasks = db.query(Task.title).filter(Task.firebase_uid == firebase_uid).limit(3).all()
+            sample_events = db.query(Event.title).filter(Event.firebase_uid == firebase_uid).limit(3).all()
+            
+            return {
+                "firebase_uid": firebase_uid,
+                "counts": {
+                    "users": user_count,
+                    "tasks": task_count,
+                    "events": event_count,
+                    "conversations": conv_count
+                },
+                "samples": {
+                    "user_name": user_name,
+                    "tasks": [t[0] for t in sample_tasks],
+                    "events": [e[0] for e in sample_events]
+                },
+                "db_type": "postgresql"
+            }
+        except Exception as e:
+            logger.error(f"❌ Error getting data status: {e}")
+            return {"error": str(e)}
+
+def get_latest_conversation(firebase_uid: str):
+    with get_session() as db:
+        try:
+            count = db.query(Conversation).filter(Conversation.firebase_uid == firebase_uid).count()
+            latest = db.query(Conversation).filter(Conversation.firebase_uid == firebase_uid).order_by(Conversation.timestamp.desc()).first()
+            
+            return {
+                "firebase_uid": firebase_uid,
+                "total_conversations": count,
+                "latest_conversation": latest.timestamp if latest else None,
+                "latest_intent": latest.intent if latest else None,
+                "memory_status": "active" if count > 0 else "empty"
+            }
+        except Exception as e:
+            logger.error(f"❌ Error getting latest conversation: {e}")
+            return {"error": str(e)}

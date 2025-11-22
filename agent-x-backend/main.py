@@ -25,7 +25,8 @@ from database.operations import (
     save_conversation, get_conversation_history, get_all_conversations,
     update_task_completion_in_db, update_task_in_db, delete_task_from_db,
     save_enhanced_event, update_event_in_db, delete_event_from_db,
-    ensure_user_exists
+    ensure_user_exists, delete_all_user_data, get_user_data_status,
+    get_latest_conversation
 )
 from routes.news_router import router as news_router
 from services.news_scheduler import news_scheduler
@@ -504,6 +505,29 @@ def update_task_completion_in_db(firebase_uid: str, task_id: int, completed: boo
     finally:
         conn.close()
 
+@app.post("/api/clear_memory")
+async def clear_memory_endpoint(request: Request, current_user: dict = Depends(get_current_user)):
+    firebase_uid = current_user["firebase_uid"]
+
+    try:
+        result = delete_all_user_data(firebase_uid)
+        return {
+            "status": "success",
+            "message": "All data cleared successfully",
+            "deleted_counts": result
+        }
+    except Exception as e:
+        logger.error(f"❌ Clear memory error: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+# TODO: Migrate this to sqlalchemy
+@app.get("/debug/data_status/{firebase_uid}")
+async def debug_data_status(firebase_uid: str):
+    """Debug endpoint to check all data for a Firebase UID"""
+    try:
+        return get_user_data_status(firebase_uid)
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/api/export_chat")
 async def export_chat_endpoint(request: Request, current_user: dict = Depends(get_current_user)):
@@ -544,6 +568,15 @@ async def export_chat_endpoint(request: Request, current_user: dict = Depends(ge
 
 
 # Conversation memory endpoints
+# TODO: Change this to sqlalchemy.
+@app.get("/api/memory/debug/{firebase_uid}")
+async def debug_memory_status(firebase_uid: str):
+    """Debug endpoint to check memory status"""
+    try:
+        return get_latest_conversation(firebase_uid)
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/conversations/history/{firebase_uid}")
 async def get_conversation_history_endpoint(firebase_uid: str, limit: int = 10):
     """Get conversation history for a Firebase UID"""
@@ -890,9 +923,6 @@ async def debug_user_profile(firebase_uid: str):
         }
     except Exception as e:
         return {"error": str(e)}
-
-# Run this to fix the profession capitalization
-
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
