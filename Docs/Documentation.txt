@@ -74,3 +74,6 @@ Currently supporting the following:
     "Schedule a meeting" → Should route to CalendarAgent
 
     "Check my emails" → Should route to EmailAgent
+
+
+uvicorn main:app --host 0.0.0.0 --port 8000

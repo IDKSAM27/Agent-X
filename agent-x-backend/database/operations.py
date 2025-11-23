@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text, case
 from .connection import SessionLocal
-from .models import User, Task, Event, Conversation
+from .models import User, Task, Event, Conversation, AgentContext
+import json
 import logging
 from datetime import datetime
 from contextlib import contextmanager
@@ -55,6 +56,88 @@ def get_user_profession_from_db(firebase_uid: str) -> str:
         except Exception:
             return "Professional"
 
+def store_user_preferences(firebase_uid: str, profession: str, preferences: dict):
+    with get_session() as db:
+        try:
+            user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+            if user:
+                user.profession = profession
+                user.preferences = json.dumps(preferences)
+            else:
+                user = User(
+                    firebase_uid=firebase_uid,
+                    profession=profession,
+                    preferences=json.dumps(preferences),
+                    email=f"{firebase_uid}@placeholder.com",
+                    email_verified=True,
+                    created_at=datetime.now().isoformat()
+                )
+                db.add(user)
+            db.commit()
+            logger.info(f"✅ Saved preferences for Firebase UID {firebase_uid}")
+        except Exception as e:
+            logger.error(f"❌ Error saving user preferences: {e}")
+            db.rollback()
+            raise
+
+def get_user_preferences(firebase_uid: str) -> dict:
+    with get_session() as db:
+        user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+        if user and user.preferences:
+            try:
+                return json.loads(user.preferences)
+            except:
+                return {}
+        return {}
+
+# --- AGENT CONTEXT
+
+def store_agent_context(firebase_uid: str, agent_name: str, context_type: str, context_data: dict, expires_at: str = None):
+    with get_session() as db:
+        try:
+            context = AgentContext(
+                firebase_uid=firebase_uid,
+                agent_name=agent_name,
+                context_type=context_type,
+                context_data=json.dumps(context_data),
+                created_at=datetime.now().isoformat(),
+                expires_at=expires_at
+            )
+            db.add(context)
+            db.commit()
+            logger.info(f"✅ Saved agent context: {context_type} for {firebase_uid}")
+        except Exception as e:
+            logger.error(f"❌ Error saving agent context: {e}")
+            db.rollback()
+            raise
+
+def get_agent_context(firebase_uid: str, context_type: str = None):
+    with get_session() as db:
+        try:
+            query = db.query(AgentContext).filter(AgentContext.firebase_uid == firebase_uid)
+            
+            # Filter expired
+            now = datetime.now().isoformat()
+            query = query.filter( (AgentContext.expires_at == None) | (AgentContext.expires_at > now) )
+
+            if context_type:
+                query = query.filter(AgentContext.context_type == context_type)
+            
+            contexts = query.all()
+            result = []
+            for ctx in contexts:
+                result.append({
+                    "agent_name": ctx.agent_name,
+                    "context_type": ctx.context_type,
+                    "context_data": json.loads(ctx.context_data) if ctx.context_data else {},
+                    "created_at": ctx.created_at
+                })
+            return result
+        except Exception as e:
+            logger.error(f"❌ Error getting agent context: {e}")
+            return []
+
+# --- TASKS
 # --- TASKS
 
 def save_task(firebase_uid: str, title: str, description: str = "", priority: str = "medium",
@@ -156,7 +239,7 @@ def get_all_events(firebase_uid: str):
 
 # --- CONVERSATIONS
 
-def save_conversation(firebase_uid: str, user_message: str, assistant_response: str, agent_name: str, intent: str = None):
+def save_conversation(firebase_uid: str, user_message: str, assistant_response: str, agent_name: str, intent: str = None, message_id: str = None, metadata: dict = None):
     with get_session() as db:
         try:
             conv = Conversation(
@@ -165,6 +248,8 @@ def save_conversation(firebase_uid: str, user_message: str, assistant_response: 
                 assistant_response=assistant_response,
                 agent_name=agent_name,
                 intent=intent,
+                message_id=message_id,
+                conversation_metadata=json.dumps(metadata) if metadata else None,
                 timestamp=datetime.now().isoformat()
             )
             db.add(conv)
@@ -189,7 +274,7 @@ def get_all_conversations(firebase_uid: str):
         conversations = db.query(Conversation).filter(Conversation.firebase_uid == firebase_uid).order_by(Conversation.timestamp.desc()).all()
         result = []
         for c in conversations:
-            result.append((c.id, c.user_message, c.assistant_response, c.agent_name, c.intent, c.timestamp, None))
+            result.append((c.id, c.user_message, c.assistant_response, c.agent_name, c.intent, c.timestamp, c.message_id))
         return result
 
 def update_task_completion_in_db(firebase_uid: str, task_id: int, completed: bool) -> bool:

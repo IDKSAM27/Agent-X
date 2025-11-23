@@ -488,22 +488,7 @@ def build_context_string(conversations):
 
     return "\n".join(context_parts) + "\n\n"
 
-def update_task_completion_in_db(firebase_uid: str, task_id: int, completed: bool) -> bool:
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "UPDATE tasks SET is_completed = ?, updated_at = ? WHERE id = ? AND firebase_uid = ?",
-            (1 if completed else 0, datetime.now().isoformat(), task_id, firebase_uid)
-        )
-        conn.commit()
-        return cursor.rowcount > 0
-    except Exception as e:
-        logger.error(f"Failed to update task completion: {e}")
-        conn.rollback()
-        return False
-    finally:
-        conn.close()
+
 
 @app.post("/api/clear_memory")
 async def clear_memory_endpoint(request: Request, current_user: dict = Depends(get_current_user)):

@@ -12,6 +12,7 @@ class User(Base):
     email_verified = Column(Boolean, default=False)
     created_at = Column(String, nullable=False)
     last_login = Column(String, nullable=True)
+    preferences = Column(Text, nullable=True)
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -49,8 +50,21 @@ class Conversation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     firebase_uid = Column(String, nullable=False, index=True)
+    message_id = Column(String, unique=True, nullable=True)
     user_message = Column(Text, nullable=False)
     assistant_response = Column(Text, nullable=False)
     agent_name = Column(String, nullable=False)
     intent = Column(String, nullable=True)
+    conversation_metadata = Column(Text, nullable=True)
     timestamp = Column(String, nullable=False)
+
+class AgentContext(Base):
+    __tablename__ = "agent_context"
+
+    id = Column(Integer, primary_key=True, index=True)
+    firebase_uid = Column(String, nullable=False, index=True)
+    agent_name = Column(String, nullable=False)
+    context_type = Column(String, nullable=True)
+    context_data = Column(Text, nullable=True)
+    created_at = Column(String, nullable=False)
+    expires_at = Column(String, nullable=True)

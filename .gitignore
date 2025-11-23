@@ -54,3 +54,6 @@ app.*.map.json
 # API keys
 *.key
 *.pem
+
+# Excluding news_cache
+/agent-x-backend/news_cache
