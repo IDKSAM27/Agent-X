@@ -16,6 +16,7 @@ cryptography==45.0.7
 distro==1.9.0
 durationpy==0.10
 fastapi==0.116.1
+feedparser==6.0.12
 filelock==3.19.1
 firebase_admin==7.1.0
 flatbuffers==25.2.10
