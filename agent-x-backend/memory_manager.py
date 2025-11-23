@@ -1,14 +1,19 @@
-import sqlite3
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 from sentence_transformers import SentenceTransformer
 from chromadb import PersistentClient  # New import
+from database.operations import (
+    save_conversation, 
+    store_user_preferences, 
+    get_user_preferences, 
+    store_agent_context, 
+    get_agent_context
+)
 
 class MemoryManager:
-    def __init__(self, db_path: str = "agent_memory.db"):
-        self.db_path = db_path
+    def __init__(self):
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
         # Use new PersistentClient instead of deprecated Settings
@@ -18,53 +23,6 @@ class MemoryManager:
         self.conversations = self.chroma_client.get_or_create_collection("conversations")
         self.user_preferences = self.chroma_client.get_or_create_collection("user_preferences")
         self.agent_context = self.chroma_client.get_or_create_collection("agent_context")
-
-        self._init_sqlite_db()
-
-    def _init_sqlite_db(self):
-        """Initialize SQLite for structured data"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Conversations table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS conversations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                message_id TEXT UNIQUE,
-                user_message TEXT,
-                agent_response TEXT,
-                agent_name TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                metadata TEXT
-            )
-        ''')
-
-        # User preferences table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_preferences (
-                user_id TEXT PRIMARY KEY,
-                profession TEXT,
-                preferences TEXT,
-                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        # Agent context table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS agent_context (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                agent_name TEXT NOT NULL,
-                context_type TEXT,
-                context_data TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                expires_at DATETIME
-            )
-        ''')
-
-        conn.commit()
-        conn.close()
 
     async def store_conversation(
             self,
@@ -79,20 +37,20 @@ class MemoryManager:
 
         print(f"🧠 [MEMORY] Storing conversation for user {user_id}: '{user_message[:50]}...'")
 
-        # Store in SQLite
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            INSERT OR REPLACE INTO conversations 
-            (user_id, message_id, user_message, agent_response, agent_name, metadata)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, message_id, user_message, agent_response, agent_name, json.dumps(metadata or {})))
-
-        conn.commit()
-        conn.close()
-
-        print(f"🧠 [MEMORY] ✅ Conversation stored in SQLite database")
+        # Store in PostgreSQL
+        try:
+            save_conversation(
+                firebase_uid=user_id,
+                user_message=user_message,
+                assistant_response=agent_response,
+                agent_name=agent_name,
+                intent=metadata.get("intent") if metadata else None,
+                message_id=message_id,
+                metadata=metadata
+            )
+            print(f"🧠 [MEMORY] ✅ Conversation stored in PostgreSQL database")
+        except Exception as e:
+            print(f"🧠 [MEMORY] ❌ Error storing in PostgreSQL: {e}")
 
         # Create embeddings and store in ChromaDB
         try:
@@ -152,16 +110,9 @@ class MemoryManager:
 
     async def store_user_preferences(self, user_id: str, profession: str, preferences: Dict[str, Any]):
         """Store user preferences and patterns"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            INSERT OR REPLACE INTO user_preferences (user_id, profession, preferences)
-            VALUES (?, ?, ?)
-        ''', (user_id, profession, json.dumps(preferences)))
-
-        conn.commit()
-        conn.close()
+        
+        # Store in PostgreSQL
+        store_user_preferences(user_id, profession, preferences)
 
         # Store in vector DB for semantic matching
         preferences_text = f"User profession: {profession}. Preferences: {json.dumps(preferences)}"
@@ -197,18 +148,25 @@ class MemoryManager:
             limit=10
         )
 
-        # Get user preferences
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM user_preferences WHERE user_id = ?', (user_id,))
-        prefs = cursor.fetchone()
-        conn.close()
+        # Get user preferences from PostgreSQL
+        prefs = get_user_preferences(user_id)
+        
+        # We need profession too, which is stored in User model. 
+        # get_user_preferences returns the dict stored in preferences column.
+        # But we also need profession. 
+        # Let's check get_user_preferences implementation again.
+        # It returns json.loads(user.preferences). It doesn't return profession.
+        # I should update get_user_preferences to return profession as well or use get_user_profile_by_uuid.
+        # Wait, get_user_profile_by_uuid returns profession.
+        
+        from database.operations import get_user_profile_by_uuid
+        profile = get_user_profile_by_uuid(user_id)
 
         return {
             "user_id": user_id,
             "recent_conversations": recent_conversations,
-            "preferences": json.loads(prefs[2]) if prefs and len(prefs) > 2 else {},
-            "profession": prefs[1] if prefs and len(prefs) > 1 else "Unknown"
+            "preferences": prefs,
+            "profession": profile.get("profession", "Unknown")
         }
 
     async def store_agent_context(
@@ -220,49 +178,12 @@ class MemoryManager:
             expires_hours: int = 24
     ):
         """Store agent-specific context that other agents can access"""
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        expires_at = datetime.now() + timedelta(hours=expires_hours)
-
-        cursor.execute('''
-            INSERT INTO agent_context (user_id, agent_name, context_type, context_data, expires_at)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (user_id, agent_name, context_type, json.dumps(context_data), expires_at))
-
-        conn.commit()
-        conn.close()
+        expires_at = (datetime.now() + timedelta(hours=expires_hours)).isoformat()
+        store_agent_context(user_id, agent_name, context_type, context_data, expires_at)
 
     async def get_agent_context(self, user_id: str, context_type: str = None) -> List[Dict[str, Any]]:
         """Get shared context from other agents"""
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        if context_type:
-            cursor.execute('''
-                SELECT * FROM agent_context 
-                WHERE user_id = ? AND context_type = ? AND expires_at > CURRENT_TIMESTAMP
-            ''', (user_id, context_type))
-        else:
-            cursor.execute('''
-                SELECT * FROM agent_context 
-                WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP
-            ''', (user_id,))
-
-        contexts = cursor.fetchall()
-        conn.close()
-
-        return [
-            {
-                "agent_name": ctx[2],
-                "context_type": ctx[3],
-                "context_data": json.loads(ctx[4]) if ctx[4] else {},
-                "created_at": ctx[5]
-            }
-            for ctx in contexts
-        ]
+        return get_agent_context(user_id, context_type)
 
 # Global memory manager instance
 memory_manager = MemoryManager()
