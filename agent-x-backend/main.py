@@ -26,7 +26,9 @@ from database.operations import (
     update_task_completion_in_db, update_task_in_db, delete_task_from_db,
     save_enhanced_event, update_event_in_db, delete_event_from_db,
     ensure_user_exists, delete_all_user_data, get_user_data_status,
-    get_latest_conversation
+    get_latest_conversation,
+    create_chat_session, get_user_chat_sessions, update_chat_session_title,
+    delete_chat_session, get_chat_messages
 )
 from routes.news_router import router as news_router
 from services.news_scheduler import news_scheduler
@@ -138,7 +140,9 @@ class AgentRequest(BaseModel):
     message: str
     user_id: str
     context: Dict[str, Any]
+    context: Dict[str, Any]
     timestamp: str
+    session_id: Optional[int] = None # Added session_id
 
 class AgentResponse(BaseModel):
     agent_name: str
@@ -147,6 +151,7 @@ class AgentResponse(BaseModel):
     metadata: Dict[str, Any]
     requires_follow_up: bool = False
     suggested_actions: Optional[List[str]] = None
+    session_id: Optional[int] = None # Added session_id
 
 @app.post("/api/agents/process")
 async def process_agent(request: Request, current_user: dict = Depends(get_current_user)):
@@ -154,6 +159,12 @@ async def process_agent(request: Request, current_user: dict = Depends(get_curre
         data = await request.json()
         message = data.get("message", "")
         firebase_uid = current_user["firebase_uid"]
+        session_id = data.get("session_id")
+
+        # Create session if not provided
+        if not session_id:
+            session_id = create_chat_session(firebase_uid, title=message[:30] + "..." if len(message) > 30 else message)
+            logger.info(f"🆕 Created new session {session_id} for {firebase_uid}")
 
         # Fix: Get profession from context data sent by Flutter
         context_data = data.get("context", {})
@@ -170,7 +181,17 @@ async def process_agent(request: Request, current_user: dict = Depends(get_curre
         )
 
         # Get conversation context
-        recent_conversations = get_conversation_history(firebase_uid, limit=3)
+        # TODO: Get context specific to this session? For now, keep global context or switch to session context
+        # Switching to session context makes more sense for "multiple chats"
+        if session_id:
+             session_messages = get_chat_messages(session_id, firebase_uid)
+             # Convert to format expected by build_context_string
+             recent_conversations = []
+             for msg in session_messages[-5:]: # Last 5 messages
+                 recent_conversations.append((msg['user_message'], msg['assistant_response'], msg['agent_name'], msg['intent'], msg['timestamp']))
+        else:
+             recent_conversations = get_conversation_history(firebase_uid, limit=3)
+        
         context_string = build_context_string(recent_conversations)
 
         # Try LLM first, fallback to rule-based
@@ -205,11 +226,14 @@ async def process_agent(request: Request, current_user: dict = Depends(get_curre
             user_message=message,
             assistant_response=response_data["response"],
             agent_name=response_data["agent_name"],
-            intent=intent
+            intent=intent,
+            session_id=session_id
         )
 
         logger.info(f"💾 Saved conversation for Firebase UID {firebase_uid}")
 
+        # Add session_id to response
+        response_data["session_id"] = session_id
         return response_data
 
     except ClientDisconnect:
@@ -580,6 +604,75 @@ async def get_conversation_history_endpoint(firebase_uid: str, limit: int = 10):
         return {"status": "success", "history": history, "total": len(history)}
     except Exception as e:
         logger.error(f"Error fetching conversation history: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# --- Chat Session Endpoints ---
+
+@app.get("/api/chats")
+async def get_chats(current_user: dict = Depends(get_current_user)):
+    """Get all chat sessions for the user"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        sessions = get_user_chat_sessions(firebase_uid)
+        return {"status": "success", "sessions": sessions}
+    except Exception as e:
+        logger.error(f"❌ Error getting chats: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/chats")
+async def create_chat(request: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new chat session"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        title = request.get("title", "New Chat")
+        session_id = create_chat_session(firebase_uid, title)
+        return {"status": "success", "session_id": session_id, "title": title}
+    except Exception as e:
+        logger.error(f"❌ Error creating chat: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/chats/{session_id}/messages")
+async def get_chat_history(session_id: int, current_user: dict = Depends(get_current_user)):
+    """Get messages for a specific chat session"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        messages = get_chat_messages(session_id, firebase_uid)
+        return {"status": "success", "messages": messages}
+    except Exception as e:
+        logger.error(f"❌ Error getting chat messages: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.delete("/api/chats/{session_id}")
+async def delete_chat(session_id: int, current_user: dict = Depends(get_current_user)):
+    """Delete a chat session"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        success = delete_chat_session(session_id, firebase_uid)
+        if success:
+            return {"status": "success", "message": "Chat deleted"}
+        else:
+            return {"status": "error", "message": "Chat not found or could not be deleted"}
+    except Exception as e:
+        logger.error(f"❌ Error deleting chat: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.patch("/api/chats/{session_id}")
+async def update_chat(session_id: int, request: dict, current_user: dict = Depends(get_current_user)):
+    """Update chat session (e.g. title)"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        title = request.get("title")
+        if not title:
+             return {"status": "error", "message": "Title required"}
+             
+        success = update_chat_session_title(session_id, title, firebase_uid)
+        if success:
+            return {"status": "success", "message": "Chat updated"}
+        else:
+            return {"status": "error", "message": "Chat not found or could not be updated"}
+    except Exception as e:
+        logger.error(f"❌ Error updating chat: {e}")
         return {"status": "error", "message": str(e)}
 
 
