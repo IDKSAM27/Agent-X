@@ -57,6 +57,16 @@ class Conversation(Base):
     intent = Column(String, nullable=True)
     conversation_metadata = Column(Text, nullable=True)
     timestamp = Column(String, nullable=False)
+    session_id = Column(Integer, nullable=True, index=True) # Added session_id
+
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    firebase_uid = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
 
 class AgentContext(Base):
     __tablename__ = "agent_context"

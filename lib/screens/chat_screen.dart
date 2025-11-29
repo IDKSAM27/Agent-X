@@ -23,6 +23,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   final FocusNode _focusNode = FocusNode();
   final List<ChatMessage> _messages = [];
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  
+  // Chat Session State
+  List<Map<String, dynamic>> _sessions = [];
+  int? _currentSessionId;
+  bool _isLoadingSessions = false;
 
   bool _isTyping = false;
   late AnimationController _inputController;
@@ -42,6 +47,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     ));
 
     _addWelcomeMessage();
+    _fetchSessions(); // Fetch sessions on init
   }
 
   @override
@@ -100,6 +106,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       child: Scaffold(
         backgroundColor: Theme.of(context).colorScheme.surface,
         resizeToAvoidBottomInset: true, // Enable proper keyboard handling
+        drawer: _buildDrawer(), // Added Drawer
         appBar: appBar,
         body: SafeArea( // Wrap in SafeArea
           child: Column(
@@ -121,6 +128,66 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+
+
+  Widget _buildDrawer() {
+    return Drawer(
+      child: Column(
+        children: [
+          UserAccountsDrawerHeader(
+            accountName: Text(_auth.currentUser?.displayName ?? 'User'),
+            accountEmail: Text(_auth.currentUser?.email ?? ''),
+            currentAccountPicture: CircleAvatar(
+              backgroundColor: Theme.of(context).colorScheme.onPrimary,
+              child: Text(
+                (_auth.currentUser?.displayName ?? 'U')[0].toUpperCase(),
+                style: TextStyle(fontSize: 24, color: Theme.of(context).colorScheme.primary),
+              ),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.add),
+            title: const Text('New Chat'),
+            onTap: () {
+              Navigator.pop(context); // Close drawer
+              _createNewChat();
+            },
+          ),
+          const Divider(),
+          Expanded(
+            child: _isLoadingSessions
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    itemCount: _sessions.length,
+                    itemBuilder: (context, index) {
+                      final session = _sessions[index];
+                      final isSelected = session['id'] == _currentSessionId;
+                      return ListTile(
+                        leading: const Icon(Icons.chat_bubble_outline),
+                        title: Text(
+                          session['title'] ?? 'New Chat',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        selected: isSelected,
+                        selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
+                        onTap: () {
+                          Navigator.pop(context);
+                          _loadSession(session['id']);
+                        },
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 16),
+                          onPressed: () => _deleteSession(session['id']),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -540,6 +607,129 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
   }
 
+  // --- Session Management Methods ---
+
+  Future<void> _fetchSessions() async {
+    setState(() => _isLoadingSessions = true);
+    try {
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) return;
+
+      final response = await dio.get(
+        '/api/chats',
+        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
+      );
+
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        setState(() {
+          _sessions = List<Map<String, dynamic>>.from(response.data['sessions']);
+        });
+      }
+    } catch (e) {
+      print('❌ Error fetching sessions: $e');
+    } finally {
+      setState(() => _isLoadingSessions = false);
+    }
+  }
+
+  Future<void> _loadSession(int sessionId) async {
+    if (_currentSessionId == sessionId) return;
+
+    setState(() {
+      _currentSessionId = sessionId;
+      _messages.clear();
+      _isLoadingSessions = true; // Reusing loading state for message loading
+    });
+
+    try {
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) return;
+
+      final response = await dio.get(
+        '/api/chats/$sessionId/messages',
+        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
+      );
+
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        final List<dynamic> messagesData = response.data['messages'];
+        final List<ChatMessage> loadedMessages = [];
+
+        for (var msg in messagesData) {
+          // Add user message
+          loadedMessages.add(ChatMessage(
+            id: '${msg['id']}_user',
+            content: msg['user_message'],
+            type: MessageType.user,
+            timestamp: DateTime.parse(msg['timestamp']),
+          ));
+
+          // Add assistant response
+          loadedMessages.add(ChatMessage(
+            id: '${msg['id']}_assistant',
+            content: msg['assistant_response'],
+            type: MessageType.assistant,
+            timestamp: DateTime.parse(msg['timestamp']), // Or add small offset
+            metadata: msg['metadata'],
+          ));
+        }
+
+        setState(() {
+          _messages.addAll(loadedMessages);
+        });
+        
+        // Scroll to bottom after loading
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      }
+    } catch (e) {
+      print('❌ Error loading session: $e');
+      _showErrorMessage('Failed to load chat history');
+    } finally {
+      setState(() => _isLoadingSessions = false);
+    }
+  }
+
+  void _createNewChat() {
+    setState(() {
+      _currentSessionId = null;
+      _messages.clear();
+      _addWelcomeMessage();
+    });
+  }
+
+  Future<void> _deleteSession(int sessionId) async {
+    // Confirm dialog
+    final confirmed = await _showConfirmDialog(
+      title: 'Delete Chat',
+      content: 'Are you sure you want to delete this chat?',
+      confirmText: 'Delete',
+      isDestructive: true,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) return;
+
+      final response = await dio.delete(
+        '/api/chats/$sessionId',
+        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
+      );
+
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        setState(() {
+          _sessions.removeWhere((s) => s['id'] == sessionId);
+          if (_currentSessionId == sessionId) {
+            _createNewChat();
+          }
+        });
+      }
+    } catch (e) {
+      print('❌ Error deleting session: $e');
+      _showErrorMessage('Failed to delete chat');
+    }
+  }
+
   void _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _isTyping) return;
@@ -564,18 +754,48 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     try {
       // Use HybridOrchestrator with Firebase integration
-      final orchestrator = HybridOrchestrator();
-      final agentResponse = await orchestrator.processRequest(
-        text,
-        profession: widget.profession,
+      // Note: We need to pass session_id to the orchestrator or handle it manually here.
+      // Since HybridOrchestrator might not support session_id yet, we'll construct the request manually
+      // or update HybridOrchestrator. For now, let's assume we call the API directly here 
+      // to ensure session_id is passed, OR we modify HybridOrchestrator.
+      // Given the constraints, I'll call the API directly here to be safe and quick, 
+      // mimicking what HybridOrchestrator does but adding session_id.
+      
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) throw Exception('Not authenticated');
+
+      final response = await dio.post(
+        '/api/agents/process',
+        data: {
+          'message': text,
+          'user_id': _getCurrentUserId(),
+          'context': {'profession': widget.profession},
+          'timestamp': DateTime.now().toIso8601String(),
+          'session_id': _currentSessionId,
+        },
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $idToken',
+          },
+        ),
       );
+
+      final data = response.data;
+      
+      // Update current session ID if it was null (new chat created)
+      if (_currentSessionId == null && data['session_id'] != null) {
+        setState(() {
+          _currentSessionId = data['session_id'];
+        });
+        _fetchSessions(); // Refresh list to show new chat title
+      }
 
       final assistantMessage = ChatMessage(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
-        content: agentResponse.response,
+        content: data['response'],
         type: MessageType.assistant,
         timestamp: DateTime.now(),
-        metadata: agentResponse.metadata,
+        metadata: data['metadata'],
       );
 
       setState(() {

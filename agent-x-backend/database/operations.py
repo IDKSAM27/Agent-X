@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text, case
 from .connection import SessionLocal
-from .models import User, Task, Event, Conversation, AgentContext
+from .connection import SessionLocal
+from .models import User, Task, Event, Conversation, AgentContext, ChatSession
 import json
 import logging
 from datetime import datetime
@@ -239,7 +240,101 @@ def get_all_events(firebase_uid: str):
 
 # --- CONVERSATIONS
 
-def save_conversation(firebase_uid: str, user_message: str, assistant_response: str, agent_name: str, intent: str = None, message_id: str = None, metadata: dict = None):
+def create_chat_session(firebase_uid: str, title: str = "New Chat") -> int:
+    with get_session() as db:
+        try:
+            now = datetime.now().isoformat()
+            session = ChatSession(
+                firebase_uid=firebase_uid,
+                title=title,
+                created_at=now,
+                updated_at=now
+            )
+            db.add(session)
+            db.commit()
+            db.refresh(session)
+            logger.info(f"✅ Created chat session {session.id} for {firebase_uid}")
+            return session.id
+        except Exception as e:
+            logger.error(f"❌ Error creating chat session: {e}")
+            db.rollback()
+            raise
+
+def get_user_chat_sessions(firebase_uid: str):
+    with get_session() as db:
+        try:
+            sessions = db.query(ChatSession).filter(ChatSession.firebase_uid == firebase_uid).order_by(ChatSession.updated_at.desc()).all()
+            result = []
+            for s in sessions:
+                result.append({
+                    "id": s.id,
+                    "title": s.title,
+                    "created_at": s.created_at,
+                    "updated_at": s.updated_at
+                })
+            return result
+        except Exception as e:
+            logger.error(f"❌ Error getting chat sessions: {e}")
+            return []
+
+def update_chat_session_title(session_id: int, title: str, firebase_uid: str) -> bool:
+    with get_session() as db:
+        try:
+            session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.firebase_uid == firebase_uid).first()
+            if session:
+                session.title = title
+                session.updated_at = datetime.now().isoformat()
+                db.commit()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error updating chat session: {e}")
+            db.rollback()
+            return False
+
+def delete_chat_session(session_id: int, firebase_uid: str) -> bool:
+    with get_session() as db:
+        try:
+            # Delete messages first
+            db.query(Conversation).filter(Conversation.session_id == session_id, Conversation.firebase_uid == firebase_uid).delete()
+            
+            # Delete session
+            session = db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.firebase_uid == firebase_uid).first()
+            if session:
+                db.delete(session)
+                db.commit()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error deleting chat session: {e}")
+            db.rollback()
+            return False
+
+def get_chat_messages(session_id: int, firebase_uid: str):
+    with get_session() as db:
+        try:
+            conversations = db.query(Conversation).filter(
+                Conversation.session_id == session_id, 
+                Conversation.firebase_uid == firebase_uid
+            ).order_by(Conversation.timestamp.asc()).all()
+            
+            result = []
+            for c in conversations:
+                result.append({
+                    "id": c.id,
+                    "user_message": c.user_message,
+                    "assistant_response": c.assistant_response,
+                    "agent_name": c.agent_name,
+                    "intent": c.intent,
+                    "timestamp": c.timestamp,
+                    "metadata": json.loads(c.conversation_metadata) if c.conversation_metadata else {}
+                })
+            return result
+        except Exception as e:
+            logger.error(f"❌ Error getting chat messages: {e}")
+            return []
+
+def save_conversation(firebase_uid: str, user_message: str, assistant_response: str, agent_name: str, intent: str = None, message_id: str = None, metadata: dict = None, session_id: int = None):
     with get_session() as db:
         try:
             conv = Conversation(
@@ -250,9 +345,17 @@ def save_conversation(firebase_uid: str, user_message: str, assistant_response: 
                 intent=intent,
                 message_id=message_id,
                 conversation_metadata=json.dumps(metadata) if metadata else None,
-                timestamp=datetime.now().isoformat()
+                timestamp=datetime.now().isoformat(),
+                session_id=session_id
             )
             db.add(conv)
+            
+            # Update session updated_at
+            if session_id:
+                session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+                if session:
+                    session.updated_at = datetime.now().isoformat()
+            
             db.commit()
             logger.info(f"💾 Saved conversation: {intent} for Firebase UID {firebase_uid}")
         except Exception as e:
