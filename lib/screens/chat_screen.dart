@@ -6,6 +6,7 @@ import '../core/constants/app_constants.dart';
 import '../core/config/api_config.dart';
 import '../models/chat_message.dart';
 import '../widgets/enhanced_chat_bubble.dart';
+import '../widgets/app_logo.dart';
 import '../core/agents/hybrid_orchestrator.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -149,10 +150,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               children: [
                 Row(
                   children: [
-                    CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      child: const Icon(Icons.auto_awesome, color: Colors.white),
-                    ),
+                  const AppLogo(size: 40, showShadow: true),
                     const SizedBox(width: 12),
                     Text(
                       'Agent X',
