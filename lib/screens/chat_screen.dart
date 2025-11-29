@@ -138,54 +138,164 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     return Drawer(
       child: Column(
         children: [
-          UserAccountsDrawerHeader(
-            accountName: Text(_auth.currentUser?.displayName ?? 'User'),
-            accountEmail: Text(_auth.currentUser?.email ?? ''),
-            currentAccountPicture: CircleAvatar(
-              backgroundColor: Theme.of(context).colorScheme.onPrimary,
-              child: Text(
-                (_auth.currentUser?.displayName ?? 'U')[0].toUpperCase(),
-                style: TextStyle(fontSize: 24, color: Theme.of(context).colorScheme.primary),
-              ),
+          // Custom Header
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainer,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    CircleAvatar(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      child: const Icon(Icons.auto_awesome, color: Colors.white),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Agent X',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _createNewChat();
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('New Chat'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          ListTile(
-            leading: const Icon(Icons.add),
-            title: const Text('New Chat'),
-            onTap: () {
-              Navigator.pop(context); // Close drawer
-              _createNewChat();
-            },
-          ),
-          const Divider(),
+          
+          const Divider(height: 1),
+
+          // Session List
           Expanded(
             child: _isLoadingSessions
                 ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
+                : ListView.separated(
+                    padding: const EdgeInsets.all(12),
                     itemCount: _sessions.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 4),
                     itemBuilder: (context, index) {
                       final session = _sessions[index];
                       final isSelected = session['id'] == _currentSessionId;
                       return ListTile(
-                        leading: const Icon(Icons.chat_bubble_outline),
+                        leading: Icon(
+                          Icons.chat_bubble_outline, 
+                          size: 20,
+                          color: isSelected ? Theme.of(context).colorScheme.primary : null,
+                        ),
                         title: Text(
                           session['title'] ?? 'New Chat',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                            color: isSelected ? Theme.of(context).colorScheme.primary : null,
+                          ),
                         ),
                         selected: isSelected,
-                        selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
+                        selectedTileColor: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         onTap: () {
                           Navigator.pop(context);
                           _loadSession(session['id']);
                         },
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 16),
-                          onPressed: () => _deleteSession(session['id']),
+                        trailing: PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_horiz, size: 18),
+                          onSelected: (value) {
+                            if (value == 'rename') {
+                              // Close drawer first? No, keep it open or close it?
+                              // Better to close drawer to show dialog clearly
+                              Navigator.pop(context); 
+                              _renameSession(session['id'], session['title'] ?? 'New Chat');
+                            } else if (value == 'delete') {
+                              Navigator.pop(context);
+                              _deleteSession(session['id']);
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            const PopupMenuItem(
+                              value: 'rename',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.edit_outlined, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Rename'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                  SizedBox(width: 8),
+                                  Text('Delete', style: TextStyle(color: Colors.red)),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     },
                   ),
+          ),
+
+          const Divider(height: 1),
+
+          // User Profile Section
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                  child: Text(
+                    (_auth.currentUser?.displayName ?? 'U')[0].toUpperCase(),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _auth.currentUser?.displayName ?? 'User',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        _auth.currentUser?.email ?? '',
+                        style: Theme.of(context).textTheme.bodySmall,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -294,6 +404,18 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               ),
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 32),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                _buildSuggestionChip('Draft an email'),
+                _buildSuggestionChip('Explain a concept'),
+                _buildSuggestionChip('Debug code'),
+                _buildSuggestionChip('Brainstorm ideas'),
+              ],
+            ),
           ],
         ),
       );
@@ -314,6 +436,20 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       },
     );
   }
+
+  Widget _buildSuggestionChip(String label) {
+    return ActionChip(
+      label: Text(label),
+      avatar: const Icon(Icons.lightbulb_outline, size: 16),
+      onPressed: () {
+        _controller.text = label;
+        _sendMessage();
+      },
+      side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+      backgroundColor: Theme.of(context).colorScheme.surface,
+    );
+  }
+
   IconData _getProfessionIcon() {
     switch (widget.profession.toLowerCase()) {
       case 'student':
@@ -727,6 +863,61 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     } catch (e) {
       print('❌ Error deleting session: $e');
       _showErrorMessage('Failed to delete chat');
+    }
+  }
+
+  Future<void> _renameSession(int sessionId, String currentTitle) async {
+    final controller = TextEditingController(text: currentTitle);
+    final newTitle = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename Chat'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Enter new chat name',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+
+    if (newTitle == null || newTitle.isEmpty || newTitle == currentTitle) return;
+
+    try {
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) return;
+
+      final response = await dio.patch(
+        '/api/chats/$sessionId',
+        data: {'title': newTitle},
+        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
+      );
+
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        setState(() {
+          final index = _sessions.indexWhere((s) => s['id'] == sessionId);
+          if (index != -1) {
+            _sessions[index]['title'] = newTitle;
+          }
+        });
+        _showSuccessSnackBar('Chat renamed successfully');
+      }
+    } catch (e) {
+      print('❌ Error renaming session: $e');
+      _showErrorMessage('Failed to rename chat');
     }
   }
 
