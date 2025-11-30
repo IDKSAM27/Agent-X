@@ -663,13 +663,17 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: AppConstants.spacingL),
             ListTile(
+              leading: const Icon(Icons.person),
               title: const Text('Profile'),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(context);
-                Navigator.push(
+                await Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => const ProfileScreen()),
-                ).then((_) => _loadUserData()); // Reload user data when returning
+                );
+                // Reload user data when returning from ProfileScreen
+                _loadUserData();
+                setState(() {}); // Force rebuild to update profile picture in banner
               },
             ),
             ListTile(
