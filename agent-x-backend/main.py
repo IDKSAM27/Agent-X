@@ -2,8 +2,9 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Dict, Any, Optional, List
@@ -11,6 +12,7 @@ import logging
 import uvicorn
 import firebase_admin
 import asyncio
+import shutil
 from firebase_admin import credentials, auth as firebase_auth
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -48,6 +50,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Create uploads directory if it doesn't exist
+UPLOAD_DIR = "uploads"
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
+# Mount static files
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Include router for news support
 app.include_router(news_router)
@@ -134,6 +144,39 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(HTTPBea
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 
+@app.post("/api/upload/image")
+async def upload_image(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    """Upload an image and return its URL"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        
+        # Create a unique filename
+        timestamp = int(datetime.now().timestamp())
+        file_extension = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+        filename = f"{firebase_uid}_{timestamp}.{file_extension}"
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        
+        # Save the file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # Construct the full URL (assuming the app knows the base URL)
+        # We return the relative path, the frontend can prepend the base URL
+        # Or we can return the full URL if we know the host
+        
+        # For now, return the relative path which is served by StaticFiles
+        image_url = f"/uploads/{filename}"
+        
+        logger.info(f"✅ Image uploaded for {firebase_uid}: {filename}")
+        
+        return {
+            "status": "success",
+            "url": image_url,
+            "filename": filename
+        }
+    except Exception as e:
+        logger.error(f"❌ Error uploading image: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 class AgentRequest(BaseModel):

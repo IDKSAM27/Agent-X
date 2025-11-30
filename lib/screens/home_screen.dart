@@ -15,6 +15,8 @@ import 'clock_screen.dart';
 import 'calendar_screen.dart';
 import 'tasks_screen.dart';
 import 'news_screen.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -179,7 +181,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+
+
   Widget _buildAppBar() {
+    final user = FirebaseAuth.instance.currentUser;
+    final photoUrl = user?.photoURL;
+
     return SliverAppBar(
       expandedHeight: 120,
       floating: true,
@@ -224,12 +231,51 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.person_outline),
-                  onPressed: _showProfileMenu,
-                  style: IconButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.surface,
-                    padding: const EdgeInsets.all(12),
+                GestureDetector(
+                  onTap: _showProfileMenu,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Theme.of(context).colorScheme.surface,
+                        width: 2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Theme.of(context).colorScheme.surface,
+                      child: photoUrl != null
+                          ? ClipOval(
+                              child: CachedNetworkImage(
+                                imageUrl: photoUrl,
+                                width: 48,
+                                height: 48,
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => Padding(
+                                  padding: const EdgeInsets.all(12.0),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => Icon(
+                                  Icons.person_outline,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
+                            )
+                          : Icon(
+                              Icons.person_outline,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                    ),
                   ),
                 ),
               ],
@@ -619,7 +665,16 @@ class _HomeScreenState extends State<HomeScreen> {
             ListTile(
               leading: const Icon(Icons.person),
               title: const Text('Profile'),
-              onTap: () => Navigator.pop(context),
+              onTap: () async {
+                Navigator.pop(context);
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ProfileScreen()),
+                );
+                // Reload user data when returning from ProfileScreen
+                _loadUserData();
+                setState(() {}); // Force rebuild to update profile picture in banner
+              },
             ),
             ListTile(
               leading: const Icon(Icons.logout),

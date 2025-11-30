@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../core/constants/app_constants.dart';
 import '../core/config/api_config.dart';
 import '../models/chat_message.dart';
@@ -265,12 +266,17 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               children: [
                 CircleAvatar(
                   backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-                  child: Text(
-                    (_auth.currentUser?.displayName ?? 'U')[0].toUpperCase(),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSecondaryContainer,
-                    ),
-                  ),
+                  backgroundImage: _auth.currentUser?.photoURL != null
+                      ? CachedNetworkImageProvider(_auth.currentUser!.photoURL!)
+                      : null,
+                  child: _auth.currentUser?.photoURL == null
+                      ? Text(
+                          (_auth.currentUser?.displayName ?? 'U')[0].toUpperCase(),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSecondaryContainer,
+                          ),
+                        )
+                      : null,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
