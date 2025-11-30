@@ -37,3 +37,5 @@ class NewsCategoryResponse(BaseModel):
     category: str
     articles: List[NewsArticleResponse]
     total_count: int
+
+#Sams On Fire
