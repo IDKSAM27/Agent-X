@@ -1,3 +1,4 @@
 .venv/
 .env
 firebase-service-account.json
+uploads/

@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'dart:io';
 import 'package:image_cropper/image_cropper.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../core/constants/app_constants.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -129,57 +131,55 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (_imageFile == null || _user == null) return null;
 
     try {
-      print('Current Storage Bucket: ${FirebaseStorage.instance.bucket}');
+      print('Uploading image to backend...');
       
-      // Explicitly use the appspot.com bucket
-      final FirebaseStorage storage = FirebaseStorage.instanceFor(bucket: 'gs://agent-x-lxix.firebasestorage.app');
-
-      final String fileName = '${_user!.uid}_profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final Reference ref = storage
-          .ref()
-          .child('profile_images')
-          .child(fileName);
-
-      print('Starting upload to bucket: ${storage.bucket}');
-      
-      // Test upload to verify access
-      try {
-        final testRef = storage.ref().child('test_connection.txt');
-        await testRef.putString('Connection test ${DateTime.now()}');
-        print('Test upload successful');
-      } catch (e) {
-        print('Test upload failed: $e');
+      // Get the ID token for authentication
+      final String? token = await _user!.getIdToken();
+      if (token == null) {
+        print('Error: No ID token available');
+        return null;
       }
 
-      print('Starting upload to path: profile_images/$fileName');
-      print('File path: ${_imageFile!.path}');
-      print('File exists: ${await _imageFile!.exists()}');
-
-      final UploadTask uploadTask = ref.putFile(_imageFile!);
+      // Create multipart request
+      final uri = Uri.parse('${AppConstants.apiBaseUrl}/api/upload/image');
+      final request = http.MultipartRequest('POST', uri);
       
-      uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
-        print('Upload progress: ${snapshot.bytesTransferred}/${snapshot.totalBytes}');
-        print('Upload state: ${snapshot.state}');
-      }, onError: (e) {
-        print('Upload stream error: $e');
-      });
+      // Add headers
+      request.headers['Authorization'] = 'Bearer $token';
+      
+      // Add file
+      request.files.add(await http.MultipartFile.fromPath(
+        'file',
+        _imageFile!.path,
+      ));
 
-      final TaskSnapshot snapshot = await uploadTask;
-      print('Upload finished. State: ${snapshot.state}');
+      // Send request
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
 
-      if (snapshot.state == TaskState.success) {
-         final String downloadUrl = await snapshot.ref.getDownloadURL();
-         return downloadUrl;
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = json.decode(response.body);
+        if (data['status'] == 'success') {
+          final String relativeUrl = data['url'];
+          // Construct full URL
+          // Remove /api from base URL if present to get root URL, or just append if base URL is root
+          // AppConstants.apiBaseUrl usually ends with /api or similar, need to be careful
+          // Assuming AppConstants.apiBaseUrl is like http://192.168.1.14:8000
+          
+          final String fullUrl = '${AppConstants.apiBaseUrl}$relativeUrl';
+          print('Upload successful. URL: $fullUrl');
+          return fullUrl;
+        } else {
+          print('Upload failed: ${data['message']}');
+          return null;
+        }
       } else {
-        print('Upload failed with state: ${snapshot.state}');
+        print('Upload failed with status: ${response.statusCode}');
+        print('Response: ${response.body}');
         return null;
       }
     } catch (e) {
       print('Error uploading image: $e');
-      if (e is FirebaseException) {
-        print('Code: ${e.code}');
-        print('Message: ${e.message}');
-      }
       return null;
     }
   }
