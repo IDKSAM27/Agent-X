@@ -6,6 +6,10 @@ import 'dart:convert';
 import '../core/config/api_config.dart';
 import '../models/task_item.dart';
 import '../core/constants/app_constants.dart';
+import '../core/database/database_helper.dart';
+import '../services/sync_service.dart';
+import 'package:uuid/uuid.dart';
+import 'dart:async';
 
 class TasksScreen extends StatefulWidget {
   final String? highlightTaskId;
@@ -48,6 +52,11 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     receiveTimeout: const Duration(seconds: 90),
   ));
 
+  final DatabaseHelper _dbHelper = DatabaseHelper();
+  final SyncService _syncService = SyncService();
+  StreamSubscription<bool>? _onlineStatusSubscription;
+  bool _isOnline = false;
+
   final List<String> _categories = ['All', 'Work', 'Personal', 'Urgent'];
   String _selectedCategory = 'All';
 
@@ -72,11 +81,25 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     // Set initial highlight task
     _highlightedTaskId = widget.highlightTaskId;
 
-    _loadSampleTasks();
+    _syncService.initialize();
+    _isOnline = _syncService.isOnline;
+    _onlineStatusSubscription = _syncService.onlineStatusStream.listen((isOnline) {
+      if (mounted) {
+        setState(() {
+          _isOnline = isOnline;
+        });
+        if (isOnline) {
+          _loadTasksFromBackend();
+        }
+      }
+    });
+
+    _loadTasks();
   }
 
   @override
   void dispose() {
+    _onlineStatusSubscription?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
     _tabController.dispose();
@@ -198,8 +221,28 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     );
   }
 
-  void _loadSampleTasks() {
-    _loadTasksFromBackend();
+  void _loadTasks() async {
+    await _loadTasksFromLocal();
+    if (_isOnline) {
+      await _loadTasksFromBackend();
+    }
+  }
+
+  Future<void> _loadTasksFromLocal() async {
+    final data = await _dbHelper.queryAllRows('tasks');
+    setState(() {
+      _tasks = data.map((item) => TaskItem(
+        id: item['id'],
+        title: item['title'],
+        description: item['description'],
+        priority: item['priority'],
+        category: item['category'],
+        dueDate: item['due_date'] != null ? DateTime.parse(item['due_date']) : null,
+        isCompleted: item['is_completed'] == 1,
+        progress: item['progress'],
+        tags: item['tags'] != null ? List<String>.from(json.decode(item['tags'])) : [],
+      )).toList();
+    });
   }
 
   Future<void> _loadTasksFromBackend() async {
@@ -217,9 +260,9 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       if (response.statusCode == 200) {
         final List<dynamic> tasksJson = response.data['tasks'] ?? [];
 
-        setState(() {
-          _tasks = tasksJson.map((taskData) {
-            return TaskItem(
+        // Update local database
+        for (var taskData in tasksJson) {
+           final task = TaskItem(
               id: taskData['id'].toString(),
               title: taskData['title'] ?? '',
               description: taskData['description'] ?? '',
@@ -234,10 +277,26 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
                   ? List<String>.from(json.decode(taskData['tags']))
                   : [],
             );
-          }).toList();
-        });
+            
+            await _dbHelper.insert('tasks', {
+              'id': task.id,
+              'title': task.title,
+              'description': task.description,
+              'priority': task.priority,
+              'category': task.category,
+              'due_date': task.dueDate?.toIso8601String(),
+              'is_completed': task.isCompleted ? 1 : 0,
+              'progress': task.progress,
+              'tags': jsonEncode(task.tags),
+              'is_synced': 1,
+              'last_updated': DateTime.now().toIso8601String(),
+            });
+        }
+        
+        // Reload from local to ensure consistency
+        await _loadTasksFromLocal();
 
-        print('✅ Loaded ${_tasks.length} tasks from backend');
+        print('✅ Loaded ${_tasks.length} tasks from backend and synced to local DB');
 
         // NEW: Auto-scroll and highlight after data loads
         if (_highlightedTaskId != null) {
@@ -246,7 +305,6 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       }
     } catch (e) {
       print('❌ Error loading tasks: $e');
-      _loadSampleTasksFallback();
     }
   }
 
@@ -301,26 +359,6 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           });
         });
       }
-    });
-  }
-
-// Keep sample tasks as fallback
-  void _loadSampleTasksFallback() {
-    // Your existing hardcoded tasks code as fallback
-    setState(() {
-      _tasks = [
-        TaskItem(
-          id: '1',
-          title: 'Complete project presentation',
-          description: 'Prepare slides for quarterly review',
-          priority: 'high',
-          category: 'work',
-          dueDate: DateTime.now().add(const Duration(days: 2)),
-          progress: 0.7,
-          tags: ['presentation', 'quarterly'],
-        ),
-        // ... other sample tasks
-      ];
     });
   }
 
@@ -439,7 +477,17 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
     return Scaffold(
       backgroundColor: Theme.of(context).colorScheme.surface,
       appBar: AppBar(
-        title: _isSearchActive ? _buildSearchField() : const Text('Tasks'),
+        title: _isSearchActive 
+            ? _buildSearchField() 
+            : Row(
+                children: [
+                  const Text('Tasks'),
+                  if (!_isOnline) ...[
+                    const SizedBox(width: 8),
+                    Icon(Icons.wifi_off, size: 16, color: Theme.of(context).colorScheme.error),
+                  ],
+                ],
+              ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: _isSearchActive
@@ -480,7 +528,16 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: RefreshIndicator(
-        onRefresh: _loadTasksFromBackend,
+        onRefresh: () async {
+          if (_isOnline) {
+             await _syncService.syncData(context: context);
+             await _loadTasksFromBackend();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('You are offline. Tasks are loaded from local storage.')),
+            );
+          }
+        },
         child: ListView(
           controller: _scrollController, // NEW: Add scroll controller
           physics: const AlwaysScrollableScrollPhysics(),
@@ -1344,23 +1401,42 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   // Task Actions
   void _toggleTaskCompletion(TaskItem task) async {
     final newStatus = !task.isCompleted;
+    final updatedTask = task.copyWith(
+      isCompleted: newStatus,
+      progress: newStatus ? 1.0 : 0.0,
+    );
 
-    // Optimistically update UI
+    // Optimistically update UI and Local DB
     setState(() {
       final index = _tasks.indexWhere((t) => t.id == task.id);
       if (index >= 0) {
-        _tasks[index] = task.copyWith(
-          isCompleted: newStatus,
-          progress: newStatus ? 1.0 : 0.0,
-        );
+        _tasks[index] = updatedTask;
       }
     });
+
+    await _dbHelper.update('tasks', {
+      'id': updatedTask.id,
+      'is_completed': newStatus ? 1 : 0,
+      'progress': updatedTask.progress,
+      'is_synced': _isOnline ? 1 : 0,
+      'last_updated': DateTime.now().toIso8601String(),
+    }, 'id');
+
+    if (!_isOnline) {
+      await _dbHelper.addToSyncQueue(
+        'task',
+        'update',
+        task.id,
+        jsonEncode({'is_completed': newStatus ? 1 : 0, 'progress': updatedTask.progress}),
+      );
+      return;
+    }
 
     try {
       final token = await _getFirebaseToken();
       final response = await _dio.post(
         '/api/tasks/${task.id}/complete',
-        data: {'completed': newStatus}, // Send as JSON body
+        data: {'completed': newStatus},
         options: Options(
             headers: {
               ...ApiConfig.defaultHeaders,
@@ -1377,22 +1453,25 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
 
     } catch (e) {
       print('❌ Error updating task: $e');
-
-      // Roll back UI update on failure
-      setState(() {
-        final index = _tasks.indexWhere((t) => t.id == task.id);
-        if (index >= 0) {
-          _tasks[index] = task; // Revert to original state
-        }
-      });
-
-      // Show error message
-      ScaffoldMessenger.of(context).showSnackBar(
+      // We don't revert UI here because we want to keep the local change
+      // and retry syncing later.
+      
+       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to update task: $e'),
-          backgroundColor: Colors.red,
+          content: Text('Synced failed, queued for later: $e'),
+          backgroundColor: Colors.orange,
         ),
       );
+       
+       // Add to sync queue on failure if not already there (though we checked _isOnline)
+       // This handles case where _isOnline was true but request failed
+       await _dbHelper.addToSyncQueue(
+        'task',
+        'update',
+        task.id,
+        jsonEncode({'is_completed': newStatus ? 1 : 0, 'progress': updatedTask.progress}),
+      );
+       await _dbHelper.update('tasks', {'is_synced': 0}, 'id');
     }
   }
 
@@ -1410,6 +1489,20 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
   }
 
   void _deleteTask(TaskItem task) async {
+    // Optimistic delete
+    setState(() {
+      _tasks.removeWhere((t) => t.id == task.id);
+    });
+    
+    // Mark as deleted in local DB (soft delete) or remove if not synced yet
+    // For simplicity, we'll just delete from local and queue a delete op
+    await _dbHelper.delete('tasks', task.id);
+
+    if (!_isOnline) {
+      await _dbHelper.addToSyncQueue('task', 'delete', task.id, '{}');
+      return;
+    }
+
     try {
       final token = await _getFirebaseToken();
       final response = await _dio.delete(
@@ -1418,12 +1511,12 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        setState(() {
-          _tasks.removeWhere((t) => t.id == task.id);
-        });
+        print('✅ Task deleted successfully');
       }
     } catch (e) {
       print('❌ Error deleting task: $e');
+      // Queue for retry
+      await _dbHelper.addToSyncQueue('task', 'delete', task.id, '{}');
     }
   }
 
@@ -2035,7 +2128,67 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       DateTime? dueDate,
       TaskItem? existingTask,
       ) async {
+    
+    final isNew = existingTask == null;
+    final String taskId = existingTask?.id ?? const Uuid().v4();
+    
+    final newTask = TaskItem(
+      id: taskId,
+      title: title,
+      description: description,
+      priority: priority,
+      category: category,
+      dueDate: dueDate,
+      isCompleted: existingTask?.isCompleted ?? false,
+      progress: existingTask?.progress ?? 0.0,
+      tags: existingTask?.tags ?? [],
+    );
+
+    // Optimistic UI update
+    setState(() {
+      if (isNew) {
+        _tasks.add(newTask);
+      } else {
+        final index = _tasks.indexWhere((t) => t.id == taskId);
+        if (index >= 0) {
+          _tasks[index] = newTask;
+        }
+      }
+    });
+
+    // Save to local DB
+    if (isNew) {
+      await _dbHelper.insert('tasks', {
+        'id': newTask.id,
+        'title': newTask.title,
+        'description': newTask.description,
+        'priority': newTask.priority,
+        'category': newTask.category,
+        'due_date': newTask.dueDate?.toIso8601String(),
+        'is_completed': newTask.isCompleted ? 1 : 0,
+        'progress': newTask.progress,
+        'tags': jsonEncode(newTask.tags),
+        'is_synced': _isOnline ? 1 : 0,
+        'last_updated': DateTime.now().toIso8601String(),
+      });
+    } else {
+       await _dbHelper.update('tasks', {
+        'id': newTask.id,
+        'title': newTask.title,
+        'description': newTask.description,
+        'priority': newTask.priority,
+        'category': newTask.category,
+        'due_date': newTask.dueDate?.toIso8601String(),
+        'is_completed': newTask.isCompleted ? 1 : 0,
+        'progress': newTask.progress,
+        'tags': jsonEncode(newTask.tags),
+        'is_synced': _isOnline ? 1 : 0,
+        'last_updated': DateTime.now().toIso8601String(),
+      }, 'id');
+    }
+
     final taskData = {
+      'id': taskId, // Send ID to backend
       'title': title,
       'description': description,
       'priority': priority,
@@ -2043,12 +2196,31 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       'due_date': dueDate?.toIso8601String(),
     };
 
+    if (!_isOnline) {
+       await _dbHelper.addToSyncQueue(
+        'task',
+        isNew ? 'create' : 'update',
+        taskId,
+        jsonEncode(taskData),
+      );
+       
+       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Saved offline. Will sync when online.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     try {
       final token = await _getFirebaseToken();
       Response response;
 
-      if (existingTask == null) {
-        // CREATE: Call backend to create new task
+      if (isNew) {
+        // CREATE
         response = await _dio.post(
           '/api/tasks',
           data: taskData,
@@ -2060,9 +2232,9 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           ),
         );
       } else {
-        // UPDATE: Call backend to update existing task
+        // UPDATE
         response = await _dio.put(
-          '/api/tasks/${existingTask.id}',
+          '/api/tasks/$taskId',
           data: taskData,
           options: Options(
             headers: {
@@ -2074,13 +2246,13 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       }
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        // Refresh tasks from backend
-        await _loadTasksFromBackend();
+        // Refresh tasks from backend to ensure consistency (optional)
+        // await _loadTasksFromBackend(); 
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(existingTask == null ? 'Task created!' : 'Task updated!'),
+              content: Text(isNew ? 'Task created!' : 'Task updated!'),
               backgroundColor: Colors.green,
             ),
           );
@@ -2091,12 +2263,21 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
 
     } catch (e) {
       print('❌ Error saving task: $e');
+      
+      // Queue for retry
+       await _dbHelper.addToSyncQueue(
+        'task',
+        isNew ? 'create' : 'update',
+        taskId,
+        jsonEncode(taskData),
+      );
+       await _dbHelper.update('tasks', {'is_synced': 0}, 'id');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save task: ${e.toString()}'),
-            backgroundColor: Colors.red,
+            content: Text('Sync failed, queued for later: ${e.toString()}'),
+            backgroundColor: Colors.orange,
           ),
         );
       }
