@@ -9,6 +9,11 @@ import '../models/chat_message.dart';
 import '../widgets/enhanced_chat_bubble.dart';
 import '../widgets/app_logo.dart';
 import '../core/agents/hybrid_orchestrator.dart';
+import '../core/database/database_helper.dart';
+import '../services/sync_service.dart';
+import 'package:uuid/uuid.dart';
+import 'dart:async';
+import 'dart:convert';
 
 class ChatScreen extends StatefulWidget {
   final String profession; // Restored profession parameter
@@ -34,6 +39,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool _isTyping = false;
   late AnimationController _inputController;
   late Dio dio;
+  
+  final DatabaseHelper _dbHelper = DatabaseHelper();
+  final SyncService _syncService = SyncService();
+  StreamSubscription<bool>? _onlineStatusSubscription;
+  bool _isOnline = false;
 
   @override
   void initState() {
@@ -49,6 +59,20 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     ));
 
     _addWelcomeMessage();
+    
+    _syncService.initialize();
+    _isOnline = _syncService.isOnline;
+    _onlineStatusSubscription = _syncService.onlineStatusStream.listen((isOnline) {
+      if (mounted) {
+        setState(() {
+          _isOnline = isOnline;
+        });
+        if (isOnline) {
+          _fetchSessions(); // Refresh sessions when online
+        }
+      }
+    });
+
     _fetchSessions(); // Fetch sessions on init
   }
 
@@ -58,6 +82,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _scrollController.dispose();
     _focusNode.dispose();
     _inputController.dispose();
+    _onlineStatusSubscription?.cancel();
     super.dispose();
   }
 
@@ -308,24 +333,39 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      centerTitle: true,
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      centerTitle: true,  // Center the entire title content
+      title: Row(
+        mainAxisAlignment: MainAxisAlignment.center,  // Center the Column horizontally
         children: [
-          const Center(
-            child: Text(
-              'Agent X',
-              style: TextStyle(fontWeight: FontWeight.bold), // optional, makes it bold
-            ),
-          ),
-          Align(
-            alignment: Alignment.center,
-            child: Text(
-              '${widget.profession} AI Assistant',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,  // Center the content vertically
+            crossAxisAlignment: CrossAxisAlignment.center, // Center the text horizontally within the column
+            children: [
+              // "Agent X" Text
+              const Text(
+                'Agent X',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
-            ),
+              if (!_isOnline) ...[
+                const SizedBox(height: 4), // Add spacing between the text and the icon
+                Icon(
+                  Icons.wifi_off,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ],
+              const SizedBox(height: 4), // Add a little space before the next line
+              // AI Assistant Text
+              Align(
+                alignment: Alignment.center,
+                child: Text(
+                  '${widget.profession} AI Assistant',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -344,10 +384,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 children: [
                   Icon(Icons.chat_bubble_outline, size: 20),
                   SizedBox(width: 12),
-                  Text('Clear Chat'),
-                ],
-              ),
+                Text('Clear Chat'),
+              ],
             ),
+          ),
             const PopupMenuItem(
               value: 'clear_data',
               child: Row(
@@ -355,16 +395,16 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   Icon(Icons.delete_forever, size: 20, color: Colors.red),
                   SizedBox(width: 12),
                   Text('Clear Data', style: TextStyle(color: Colors.red)),
-                ],
-              ),
+              ],
             ),
+          ),
             const PopupMenuItem(
               value: 'export_chat',
               child: Row(
                 children: [
                   Icon(Icons.download, size: 20),
                   SizedBox(width: 12),
-                  Text('Export Chat'),
+                Text('Export Chat'),
                 ],
               ),
             ),
@@ -383,6 +423,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       ],
     );
   }
+
 
   Widget _buildMessagesList() {
     if (_messages.isEmpty) {
@@ -751,6 +792,24 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   Future<void> _fetchSessions() async {
     setState(() => _isLoadingSessions = true);
+    
+    // Load from local DB first
+    final localSessions = await _dbHelper.queryAllRows('chat_sessions');
+    if (localSessions.isNotEmpty) {
+      setState(() {
+        _sessions = localSessions.map((s) => {
+          'id': s['id'],
+          'title': s['title'],
+          'created_at': s['created_at'],
+        }).toList();
+      });
+    }
+
+    if (!_isOnline) {
+      setState(() => _isLoadingSessions = false);
+      return;
+    }
+
     try {
       final idToken = await _getFirebaseIdToken();
       if (idToken == null) return;
@@ -761,9 +820,22 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       );
 
       if (response.statusCode == 200 && response.data['status'] == 'success') {
+        final sessions = List<Map<String, dynamic>>.from(response.data['sessions']);
         setState(() {
-          _sessions = List<Map<String, dynamic>>.from(response.data['sessions']);
+          _sessions = sessions;
         });
+        
+        // Update local DB
+        // For simplicity, we might want to clear and re-insert or upsert
+        // Here we just insert/update
+        for (var session in sessions) {
+           await _dbHelper.insert('chat_sessions', {
+            'id': session['id'],
+            'title': session['title'],
+            'created_at': session['created_at'],
+            'profession': widget.profession,
+          });
+        }
       }
     } catch (e) {
       print('❌ Error fetching sessions: $e');
@@ -780,6 +852,35 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       _messages.clear();
       _isLoadingSessions = true; // Reusing loading state for message loading
     });
+    
+    // Load messages from local DB
+    final localMessages = await _dbHelper.queryAllRows('chat_messages');
+    // Filter by session ID (assuming we store it, which we added to schema)
+    final sessionMessages = localMessages.where((m) => m['session_id'] == sessionId).toList();
+    
+    if (sessionMessages.isNotEmpty) {
+      final List<ChatMessage> loadedMessages = sessionMessages.map((m) => ChatMessage(
+        id: m['id'],
+        content: m['content'],
+        type: m['type'] == 'user' ? MessageType.user : MessageType.assistant,
+        timestamp: DateTime.parse(m['timestamp']),
+        status: m['is_synced'] == 1 ? MessageStatus.sent : MessageStatus.sending,
+      )).toList();
+      
+      // Sort by timestamp
+      loadedMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      
+      setState(() {
+        _messages.addAll(loadedMessages);
+      });
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    }
+
+    if (!_isOnline) {
+      setState(() => _isLoadingSessions = false);
+      return;
+    }
 
     try {
       final idToken = await _getFirebaseIdToken();
@@ -796,24 +897,48 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
         for (var msg in messagesData) {
           // Add user message
-          loadedMessages.add(ChatMessage(
+          final userMsg = ChatMessage(
             id: '${msg['id']}_user',
             content: msg['user_message'],
             type: MessageType.user,
             timestamp: DateTime.parse(msg['timestamp']),
-          ));
+          );
+          loadedMessages.add(userMsg);
+          
+          // Save to local DB
+          await _dbHelper.insert('chat_messages', {
+            'id': userMsg.id,
+            'session_id': sessionId,
+            'content': userMsg.content,
+            'type': 'user',
+            'timestamp': userMsg.timestamp.toIso8601String(),
+            'is_synced': 1,
+          });
 
           // Add assistant response
-          loadedMessages.add(ChatMessage(
+          final assistantMsg = ChatMessage(
             id: '${msg['id']}_assistant',
             content: msg['assistant_response'],
             type: MessageType.assistant,
             timestamp: DateTime.parse(msg['timestamp']), // Or add small offset
             metadata: msg['metadata'],
-          ));
+          );
+          loadedMessages.add(assistantMsg);
+          
+          // Save to local DB
+          await _dbHelper.insert('chat_messages', {
+            'id': assistantMsg.id,
+            'session_id': sessionId,
+            'content': assistantMsg.content,
+            'type': 'assistant',
+            'timestamp': assistantMsg.timestamp.toIso8601String(),
+            'is_synced': 1,
+          });
         }
-
+        
+        // Re-render with latest data (merging logic could be better but this is simple)
         setState(() {
+          _messages.clear();
           _messages.addAll(loadedMessages);
         });
         
@@ -847,6 +972,29 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     if (!confirmed) return;
 
+    // Soft delete locally
+    // We don't have is_deleted in chat_sessions schema yet, but we can just delete row or add column
+    // For now, let's delete the row locally as we don't want to show it anymore
+    await _dbHelper.delete('chat_sessions', sessionId.toString());
+    
+    setState(() {
+      _sessions.removeWhere((s) => s['id'] == sessionId);
+      if (_currentSessionId == sessionId) {
+        _createNewChat();
+      }
+    });
+
+    if (!_isOnline) {
+      await _dbHelper.addToSyncQueue(
+        'chat_session',
+        'delete',
+        sessionId.toString(), // ID is int, but queue expects string ID or we convert
+        jsonEncode({'id': sessionId}),
+      );
+      _showInfoSnackBar('Chat deleted offline. Will sync when online.');
+      return;
+    }
+
     try {
       final idToken = await _getFirebaseIdToken();
       if (idToken == null) return;
@@ -856,16 +1004,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         options: Options(headers: {'Authorization': 'Bearer $idToken'}),
       );
 
-      if (response.statusCode == 200 && response.data['status'] == 'success') {
-        setState(() {
-          _sessions.removeWhere((s) => s['id'] == sessionId);
-          if (_currentSessionId == sessionId) {
-            _createNewChat();
-          }
-        });
+      if (response.statusCode != 200 || response.data['status'] != 'success') {
+         _showErrorMessage('Failed to delete chat on server');
+         // Revert local change? Or just keep it deleted locally.
       }
     } catch (e) {
       print('❌ Error deleting session: $e');
+      // If network error, we might want to queue it, but we already checked isOnline.
+      // If it's another error, maybe show error.
       _showErrorMessage('Failed to delete chat');
     }
   }
@@ -900,6 +1046,30 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     if (newTitle == null || newTitle.isEmpty || newTitle == currentTitle) return;
 
+    // Update locally
+    await _dbHelper.update('chat_sessions', {
+      'id': sessionId,
+      'title': newTitle,
+    }, 'id');
+
+    setState(() {
+      final index = _sessions.indexWhere((s) => s['id'] == sessionId);
+      if (index != -1) {
+        _sessions[index]['title'] = newTitle;
+      }
+    });
+
+    if (!_isOnline) {
+      await _dbHelper.addToSyncQueue(
+        'chat_session',
+        'update',
+        sessionId.toString(),
+        jsonEncode({'id': sessionId, 'title': newTitle}),
+      );
+      _showInfoSnackBar('Chat renamed offline. Will sync when online.');
+      return;
+    }
+
     try {
       final idToken = await _getFirebaseIdToken();
       if (idToken == null) return;
@@ -911,12 +1081,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       );
 
       if (response.statusCode == 200 && response.data['status'] == 'success') {
-        setState(() {
-          final index = _sessions.indexWhere((s) => s['id'] == sessionId);
-          if (index != -1) {
-            _sessions[index]['title'] = newTitle;
-          }
-        });
         _showSuccessSnackBar('Chat renamed successfully');
       }
     } catch (e) {
@@ -932,7 +1096,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     HapticFeedback.lightImpact();
 
     final userMessage = ChatMessage(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: const Uuid().v4(),
       content: text,
       type: MessageType.user,
       timestamp: DateTime.now(),
@@ -946,16 +1110,81 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     _controller.clear();
     _scrollToBottom();
+    
+    // Handle new session creation (offline or online)
+    if (_currentSessionId == null) {
+      if (!_isOnline) {
+        // Generate temporary negative ID for offline session
+        final tempId = -DateTime.now().millisecondsSinceEpoch;
+        _currentSessionId = tempId;
+        
+        // Create local session
+        await _dbHelper.insert('chat_sessions', {
+          'id': tempId,
+          'title': 'New Chat', // Will be updated by backend later or user
+          'created_at': DateTime.now().toIso8601String(),
+          'profession': widget.profession,
+        });
+        
+        setState(() {
+          _sessions.insert(0, {
+            'id': tempId,
+            'title': 'New Chat',
+            'created_at': DateTime.now().toIso8601String(),
+          });
+        });
+      }
+      // If online, we wait for backend response to get ID
+    }
+
+    // Save to local DB (if session exists or we just created temp one)
+    if (_currentSessionId != null) {
+      await _dbHelper.insert('chat_messages', {
+        'id': userMessage.id,
+        'session_id': _currentSessionId,
+        'content': userMessage.content,
+        'type': 'user',
+        'timestamp': userMessage.timestamp.toIso8601String(),
+        'is_synced': _isOnline ? 1 : 0,
+      });
+    }
+
+    if (!_isOnline) {
+      setState(() {
+        _isTyping = false;
+        // Mark as queued/sent locally
+        final index = _messages.indexWhere((m) => m.id == userMessage.id);
+        if (index != -1) {
+          _messages[index] = userMessage.copyWith(status: MessageStatus.sent);
+        }
+        
+        // Add offline response
+        _messages.add(ChatMessage(
+          id: const Uuid().v4(),
+          content: "I'm offline right now. I'll process your message when I'm back online.",
+          type: MessageType.assistant,
+          timestamp: DateTime.now(),
+        ));
+      });
+      _scrollToBottom();
+      
+      // Queue message for sync
+      await _dbHelper.addToSyncQueue(
+        'message',
+        'create',
+        userMessage.id,
+        jsonEncode({
+          'content': text,
+          'user_id': _getCurrentUserId(),
+          'context': {'profession': widget.profession},
+          'timestamp': userMessage.timestamp.toIso8601String(),
+          'session_id': _currentSessionId,
+        }),
+      );
+      return;
+    }
 
     try {
-      // Use HybridOrchestrator with Firebase integration
-      // Note: We need to pass session_id to the orchestrator or handle it manually here.
-      // Since HybridOrchestrator might not support session_id yet, we'll construct the request manually
-      // or update HybridOrchestrator. For now, let's assume we call the API directly here 
-      // to ensure session_id is passed, OR we modify HybridOrchestrator.
-      // Given the constraints, I'll call the API directly here to be safe and quick, 
-      // mimicking what HybridOrchestrator does but adding session_id.
-      
       final idToken = await _getFirebaseIdToken();
       if (idToken == null) throw Exception('Not authenticated');
 
@@ -983,10 +1212,20 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           _currentSessionId = data['session_id'];
         });
         _fetchSessions(); // Refresh list to show new chat title
+        
+        // Now save the user message with the new session ID
+        await _dbHelper.insert('chat_messages', {
+          'id': userMessage.id,
+          'session_id': _currentSessionId,
+          'content': userMessage.content,
+          'type': 'user',
+          'timestamp': userMessage.timestamp.toIso8601String(),
+          'is_synced': 1,
+        });
       }
 
       final assistantMessage = ChatMessage(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        id: const Uuid().v4(),
         content: data['response'],
         type: MessageType.assistant,
         timestamp: DateTime.now(),
@@ -997,6 +1236,18 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         _messages.add(assistantMessage);
         _isTyping = false;
       });
+      
+      // Save assistant response to local DB
+      if (_currentSessionId != null) {
+        await _dbHelper.insert('chat_messages', {
+          'id': assistantMessage.id,
+          'session_id': _currentSessionId,
+          'content': assistantMessage.content,
+          'type': 'assistant',
+          'timestamp': assistantMessage.timestamp.toIso8601String(),
+          'is_synced': 1,
+        });
+      }
 
       _scrollToBottom();
 
