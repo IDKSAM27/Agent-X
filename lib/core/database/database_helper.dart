@@ -23,10 +23,42 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Upgrade News Table
+      await db.execute('DROP TABLE IF EXISTS news');
+      await db.execute('''
+        CREATE TABLE news(
+          id TEXT PRIMARY KEY,
+          title TEXT,
+          description TEXT,
+          summary TEXT,
+          url TEXT,
+          source TEXT,
+          published_at TEXT,
+          category TEXT,
+          image_url TEXT,
+          relevance_score REAL,
+          quality_score REAL,
+          tags TEXT,
+          keywords TEXT,
+          is_local_event INTEGER,
+          is_urgent INTEGER,
+          event_date TEXT,
+          event_location TEXT,
+          available_actions TEXT,
+          cached_at TEXT
+        )
+      ''');
+    }
+  }
+
 
   Future<void> _onCreate(Database db, int version) async {
     // Tasks Table
@@ -68,6 +100,7 @@ class DatabaseHelper {
       CREATE TABLE news(
         id TEXT PRIMARY KEY,
         title TEXT,
+        description TEXT,
         summary TEXT,
         url TEXT,
         source TEXT,
@@ -75,10 +108,14 @@ class DatabaseHelper {
         category TEXT,
         image_url TEXT,
         relevance_score REAL,
+        quality_score REAL,
         tags TEXT,
+        keywords TEXT,
         is_local_event INTEGER,
+        is_urgent INTEGER,
         event_date TEXT,
         event_location TEXT,
+        available_actions TEXT,
         cached_at TEXT
       )
     ''');
@@ -174,5 +211,10 @@ class DatabaseHelper {
   Future<void> removeFromSyncQueue(int id) async {
     final db = await database;
     await db.delete('sync_queue', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteSyncedSessionMessages(int sessionId) async {
+    final db = await database;
+    await db.delete('chat_messages', where: 'session_id = ? AND is_synced = 1', whereArgs: [sessionId]);
   }
 }

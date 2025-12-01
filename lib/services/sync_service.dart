@@ -101,21 +101,30 @@ class SyncService {
         final operation = item['operation'];
         final payload = jsonDecode(item['payload']);
         final id = item['id'];
+        final entityId = item['entity_id'];
 
         bool success = false;
+        String? tableName;
 
         if (entityType == 'task') {
           success = await _syncTask(operation, payload, token);
+          tableName = 'tasks';
         } else if (entityType == 'event') {
           success = await _syncEvent(operation, payload, token);
+          tableName = 'events';
         } else if (entityType == 'message') {
           success = await _syncMessage(operation, payload, token);
+          tableName = 'chat_messages';
         } else if (entityType == 'chat_session') {
           success = await _syncSession(operation, payload, token);
+          tableName = 'chat_sessions';
         }
 
         if (success) {
           await _dbHelper.removeFromSyncQueue(id);
+          if (tableName != null && operation != 'delete') {
+             await _dbHelper.markAsSynced(tableName, entityId);
+          }
         }
       } catch (e) {
         print('❌ Error processing sync item ${item['id']}: $e');

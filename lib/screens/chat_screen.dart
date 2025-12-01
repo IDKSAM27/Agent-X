@@ -793,17 +793,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   Future<void> _fetchSessions() async {
     setState(() => _isLoadingSessions = true);
     
-    // Load from local DB first
-    final localSessions = await _dbHelper.queryAllRows('chat_sessions');
-    if (localSessions.isNotEmpty) {
-      setState(() {
-        _sessions = localSessions.map((s) => {
-          'id': s['id'],
-          'title': s['title'],
-          'created_at': s['created_at'],
-        }).toList();
-      });
-    }
+    // 1. Load from local DB first (Single Source of Truth)
+    await _loadSessionsFromLocal();
 
     if (!_isOnline) {
       setState(() => _isLoadingSessions = false);
@@ -821,13 +812,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
       if (response.statusCode == 200 && response.data['status'] == 'success') {
         final sessions = List<Map<String, dynamic>>.from(response.data['sessions']);
-        setState(() {
-          _sessions = sessions;
-        });
         
-        // Update local DB
-        // For simplicity, we might want to clear and re-insert or upsert
-        // Here we just insert/update
+        // 2. Update local DB with remote data
         for (var session in sessions) {
            await _dbHelper.insert('chat_sessions', {
             'id': session['id'],
@@ -836,12 +822,33 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             'profession': widget.profession,
           });
         }
+        
+        // 3. Reload from local DB to reflect changes (and keep local-only sessions)
+        await _loadSessionsFromLocal();
       }
     } catch (e) {
       print('❌ Error fetching sessions: $e');
     } finally {
       setState(() => _isLoadingSessions = false);
     }
+  }
+
+  Future<void> _loadSessionsFromLocal() async {
+    final localSessions = await _dbHelper.queryAllRows('chat_sessions');
+    setState(() {
+      _sessions = localSessions.map((s) => {
+        'id': s['id'],
+        'title': s['title'],
+        'created_at': s['created_at'],
+      }).toList();
+      
+      // Sort by created_at desc
+      _sessions.sort((a, b) {
+        final aDate = DateTime.tryParse(a['created_at'].toString()) ?? DateTime.now();
+        final bDate = DateTime.tryParse(b['created_at'].toString()) ?? DateTime.now();
+        return bDate.compareTo(aDate);
+      });
+    });
   }
 
   Future<void> _loadSession(int sessionId) async {
@@ -853,29 +860,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       _isLoadingSessions = true; // Reusing loading state for message loading
     });
     
-    // Load messages from local DB
-    final localMessages = await _dbHelper.queryAllRows('chat_messages');
-    // Filter by session ID (assuming we store it, which we added to schema)
-    final sessionMessages = localMessages.where((m) => m['session_id'] == sessionId).toList();
-    
-    if (sessionMessages.isNotEmpty) {
-      final List<ChatMessage> loadedMessages = sessionMessages.map((m) => ChatMessage(
-        id: m['id'],
-        content: m['content'],
-        type: m['type'] == 'user' ? MessageType.user : MessageType.assistant,
-        timestamp: DateTime.parse(m['timestamp']),
-        status: m['is_synced'] == 1 ? MessageStatus.sent : MessageStatus.sending,
-      )).toList();
-      
-      // Sort by timestamp
-      loadedMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      
-      setState(() {
-        _messages.addAll(loadedMessages);
-      });
-      
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-    }
+    // 1. Load from local DB first
+    await _loadMessagesFromLocal(sessionId);
 
     if (!_isOnline) {
       setState(() => _isLoadingSessions = false);
@@ -893,7 +879,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
       if (response.statusCode == 200 && response.data['status'] == 'success') {
         final List<dynamic> messagesData = response.data['messages'];
-        final List<ChatMessage> loadedMessages = [];
+        
+        // 2. Delete synced messages locally to avoid duplicates (since backend might give new IDs or we just want fresh state)
+        // Unsynced messages (offline/pending) will remain.
+        await _dbHelper.deleteSyncedSessionMessages(sessionId);
 
         for (var msg in messagesData) {
           // Add user message
@@ -903,7 +892,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             type: MessageType.user,
             timestamp: DateTime.parse(msg['timestamp']),
           );
-          loadedMessages.add(userMsg);
           
           // Save to local DB
           await _dbHelper.insert('chat_messages', {
@@ -923,7 +911,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             timestamp: DateTime.parse(msg['timestamp']), // Or add small offset
             metadata: msg['metadata'],
           );
-          loadedMessages.add(assistantMsg);
           
           // Save to local DB
           await _dbHelper.insert('chat_messages', {
@@ -936,11 +923,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           });
         }
         
-        // Re-render with latest data (merging logic could be better but this is simple)
-        setState(() {
-          _messages.clear();
-          _messages.addAll(loadedMessages);
-        });
+        // 2. Reload from local DB to get merged view (synced + unsynced)
+        await _loadMessagesFromLocal(sessionId);
         
         // Scroll to bottom after loading
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
@@ -950,6 +934,31 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       _showErrorMessage('Failed to load chat history');
     } finally {
       setState(() => _isLoadingSessions = false);
+    }
+  }
+
+  Future<void> _loadMessagesFromLocal(int sessionId) async {
+    final localMessages = await _dbHelper.queryAllRows('chat_messages');
+    final sessionMessages = localMessages.where((m) => m['session_id'] == sessionId).toList();
+    
+    if (sessionMessages.isNotEmpty) {
+      final List<ChatMessage> loadedMessages = sessionMessages.map((m) => ChatMessage(
+        id: m['id'],
+        content: m['content'],
+        type: m['type'] == 'user' ? MessageType.user : MessageType.assistant,
+        timestamp: DateTime.parse(m['timestamp']),
+        status: m['is_synced'] == 1 ? MessageStatus.sent : MessageStatus.sending,
+      )).toList();
+      
+      // Sort by timestamp
+      loadedMessages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      
+      setState(() {
+        _messages.clear();
+        _messages.addAll(loadedMessages);
+      });
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
     }
   }
 
