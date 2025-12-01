@@ -305,7 +305,6 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       }
     } catch (e) {
       print('❌ Error loading tasks: $e');
-      _loadSampleTasksFallback();
     }
   }
 
@@ -360,26 +359,6 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           });
         });
       }
-    });
-  }
-
-// Keep sample tasks as fallback
-  void _loadSampleTasksFallback() {
-    // Your existing hardcoded tasks code as fallback
-    setState(() {
-      _tasks = [
-        TaskItem(
-          id: '1',
-          title: 'Complete project presentation',
-          description: 'Prepare slides for quarterly review',
-          priority: 'high',
-          category: 'work',
-          dueDate: DateTime.now().add(const Duration(days: 2)),
-          progress: 0.7,
-          tags: ['presentation', 'quarterly'],
-        ),
-        // ... other sample tasks
-      ];
     });
   }
 
