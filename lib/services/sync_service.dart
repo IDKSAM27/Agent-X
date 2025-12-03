@@ -136,30 +136,69 @@ class SyncService {
   Future<bool> _syncTask(String operation, Map<String, dynamic> data, String token) async {
     try {
       if (operation == 'create') {
-        // Remove local ID before sending to server if server assigns IDs
-        // But here we might want to keep the UUID if backend supports it, 
-        // or update local DB with server ID after response.
-        // For simplicity, let's assume we send the data and backend handles it.
-        // We might need to handle ID mapping if backend generates a new ID.
-        
-        // Adjust payload for backend
         final backendPayload = {
           'title': data['title'],
           'description': data['description'],
           'priority': data['priority'],
           'category': data['category'],
           'due_date': data['due_date'],
-          // 'id': data['id'] // If backend accepts client-generated IDs
         };
 
-        await _dio.post(
+        final response = await _dio.post(
           '/api/tasks',
           data: backendPayload,
           options: Options(headers: {'Authorization': 'Bearer $token'}),
         );
+        
+        if (response.statusCode == 200 && response.data['success'] == true) {
+          final newId = response.data['task_id'].toString();
+          final oldId = data['id'];
+          
+          // Update local DB with new ID
+          await _dbHelper.updateEntityId('tasks', oldId, newId);
+          return true;
+        }
+        return false;
+      } else if (operation == 'update') {
+        final backendPayload = {
+          'title': data['title'],
+          'description': data['description'],
+          'priority': data['priority'],
+          'category': data['category'],
+          'due_date': data['due_date'],
+        };
+        
+        // Handle completion status update separately if needed, or include it
+        // The backend has a separate endpoint for completion, but let's see if PUT supports it.
+        // Backend PUT /api/tasks/{id} supports title, description, priority, category, due_date.
+        // It does NOT support is_completed.
+        // So if we have is_completed change, we might need to call the completion endpoint.
+        // However, the sync queue payload should ideally reflect what changed.
+        // For now, let's assume the payload contains the fields to update.
+        
+        await _dio.put(
+          '/api/tasks/${data['id']}',
+          data: backendPayload,
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        
+        // If is_completed is in payload, we might need to call completion endpoint too
+        if (data.containsKey('is_completed')) {
+           await _dio.post(
+            '/api/tasks/${data['id']}/complete',
+            data: {'completed': data['is_completed']},
+            options: Options(headers: {'Authorization': 'Bearer $token'}),
+          );
+        }
+        
+        return true;
+      } else if (operation == 'delete') {
+        await _dio.delete(
+          '/api/tasks/${data['id']}',
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
         return true;
       }
-      // Implement update/delete similarly
       return true;
     } catch (e) {
       print('Failed to sync task: $e');
@@ -176,12 +215,46 @@ class SyncService {
           'start_time': data['start_time'],
           'end_time': data['end_time'],
           'category': data['category'],
-          'is_all_day': data['is_all_day'] == 1,
+          'priority': data['priority'],
+          'location': data['location'],
+          // 'is_all_day': data['is_all_day'] == 1, // Backend might not support this yet based on main.py
         };
         
-        await _dio.post(
+        final response = await _dio.post(
           '/api/events',
           data: backendPayload,
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        
+        if (response.statusCode == 200 && response.data['success'] == true) {
+          final newId = response.data['event_id'].toString();
+          final oldId = data['id'];
+          
+          // Update local DB with new ID
+          await _dbHelper.updateEntityId('events', oldId, newId);
+          return true;
+        }
+        return false;
+      } else if (operation == 'update') {
+         final backendPayload = {
+          'title': data['title'],
+          'description': data['description'],
+          'start_time': data['start_time'],
+          'end_time': data['end_time'],
+          'category': data['category'],
+          'priority': data['priority'],
+          'location': data['location'],
+        };
+        
+        await _dio.put(
+          '/api/events/${data['id']}',
+          data: backendPayload,
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        return true;
+      } else if (operation == 'delete') {
+        await _dio.delete(
+          '/api/events/${data['id']}',
           options: Options(headers: {'Authorization': 'Bearer $token'}),
         );
         return true;

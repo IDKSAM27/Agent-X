@@ -1222,7 +1222,28 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       }
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        // await _loadEventsFromBackend(); // Optional if we trust local
+        if (isNew) {
+           final newId = response.data['event_id'].toString();
+           // Update local DB with new ID
+           await _dbHelper.updateEntityId('events', eventId, newId);
+           
+           // Update in-memory list
+           // We need to find the event in the map and update its ID
+           // Since _events is Map<DateTime, List<Map<String, dynamic>>>, we iterate
+           final normalizedDate = _normalizeDate(startTime);
+           if (_events.containsKey(normalizedDate)) {
+             final eventsList = _events[normalizedDate]!;
+             final index = eventsList.indexWhere((e) => e['id'].toString() == eventId);
+             if (index >= 0) {
+               eventsList[index]['id'] = newId;
+               // We don't need to setState here because the UI will be updated on next build 
+               // or we can call setState to be safe if we want immediate reflection in the UI
+               // though _loadEventsFromLocal() was called earlier which loaded the old ID.
+               // Let's just reload from local again to be sure everything is consistent
+               await _loadEventsFromLocal();
+             }
+           }
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

@@ -2246,8 +2246,19 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       }
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        // Refresh tasks from backend to ensure consistency (optional)
-        // await _loadTasksFromBackend(); 
+        if (isNew) {
+           final newId = response.data['task_id'].toString();
+           // Update local DB with new ID
+           await _dbHelper.updateEntityId('tasks', taskId, newId);
+           
+           // Update in-memory list
+           setState(() {
+             final index = _tasks.indexWhere((t) => t.id == taskId);
+             if (index >= 0) {
+               _tasks[index] = _tasks[index].copyWith(id: newId);
+             }
+           });
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
