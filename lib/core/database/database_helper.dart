@@ -272,8 +272,20 @@ class DatabaseHelper {
     await db.delete('sync_queue', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<void> deleteSyncedSessionMessages(int sessionId) async {
+  Future<void> deleteSyncedSessionMessages(dynamic sessionId) async {
     final db = await database;
     await db.delete('chat_messages', where: 'session_id = ? AND is_synced = 1', whereArgs: [sessionId]);
+  }
+
+  Future<void> clearAllTables() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('chat_messages');
+      await txn.delete('chat_sessions');
+      await txn.delete('tasks');
+      await txn.delete('events');
+      await txn.delete('news');
+      await txn.delete('sync_queue');
+    });
   }
 }

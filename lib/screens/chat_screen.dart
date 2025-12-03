@@ -641,6 +641,199 @@ class _ChatScreenState extends State<ChatScreen> {
     ) ?? false;
   }
 
+  void _showExportDialog(Map<String, dynamic> data) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Chat Export'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Total Messages: ${data['total_messages']}'),
+              const SizedBox(height: 8),
+              const Text('Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  jsonEncode(data['conversations'].take(2).toList()),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 10, color: Colors.black87),
+                  maxLines: 10,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              // In a real app, this would save to file or share
+              Navigator.pop(context);
+              _showSuccessSnackBar('Export saved to Downloads (simulated)');
+            },
+            icon: const Icon(Icons.download),
+            label: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.grey)),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  // --- Memory & Options ---
+
+  Future<void> _showMemoryStatus() async {
+    try {
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) return;
+
+      final response = await dio.get(
+        '/debug/data_status/${_auth.currentUser!.uid}',
+        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
+      );
+
+      if (mounted && response.statusCode == 200) {
+        final data = response.data;
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Memory Status'),
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildInfoRow('Total Conversations', '${data['conversations_count']}'),
+                  _buildInfoRow('Total Tasks', '${data['tasks_count']}'),
+                  _buildInfoRow('Total Events', '${data['events_count']}'),
+                  const SizedBox(height: 16),
+                  const Text('Recent Activity:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text(
+                    jsonEncode(data['recent_activity']),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      _showErrorMessage('Failed to fetch memory status');
+    }
+  }
+
+  Future<void> _clearMemory() async {
+    final confirmed = await _showConfirmDialog(
+      title: 'Clear All Data',
+      content: 'This will permanently delete ALL your conversations, tasks, and events. This action cannot be undone.',
+      confirmText: 'Clear All Data',
+      isDestructive: true,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) return;
+
+      final response = await dio.post(
+        '/api/clear_memory',
+        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
+      );
+
+      if (response.statusCode == 200) {
+        // Clear local DB
+        await _dbHelper.clearAllTables();
+        
+        setState(() {
+          _messages.clear();
+          _sessions.clear();
+          _currentSessionId = null;
+        });
+        
+        _showSuccessSnackBar('All data cleared successfully');
+        _createNewChat();
+      }
+    } catch (e) {
+      _showErrorMessage('Failed to clear data');
+    }
+  }
+
+  Future<void> _exportChat() async {
+    try {
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) return;
+
+      final response = await dio.post(
+        '/api/export_chat',
+        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
+      );
+
+      if (mounted && response.statusCode == 200) {
+        final data = response.data['data'];
+        _showExportDialog(data);
+      }
+    } catch (e) {
+      _showErrorMessage('Failed to export chat');
+    }
+  }
+
+  Future<void> _clearCurrentChat() async {
+    if (_currentSessionId == null) return;
+
+    final confirmed = await _showConfirmDialog(
+      title: 'Clear Chat',
+      content: 'This will clear all messages in the current session.',
+      confirmText: 'Clear',
+      isDestructive: true,
+    );
+
+    if (!confirmed) return;
+
+    // Clear locally
+    await _dbHelper.deleteSyncedSessionMessages(_currentSessionId);
+    
+    setState(() {
+      _messages.clear();
+      _addWelcomeMessage();
+    });
+
+    // If online, we might want to sync this clearing, but backend doesn't have "clear messages" endpoint yet.
+    // We can just rely on local clear for now or implement backend support later.
+    // For now, this is a local-first action.
+  }
+
   // --- UI Building ---
 
   @override
@@ -685,10 +878,66 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
       actions: [
-        IconButton(
-          icon: const Icon(Icons.add),
-          onPressed: _createNewChat,
-          tooltip: 'New Chat',
+        PopupMenuButton<String>(
+          onSelected: (value) {
+            switch (value) {
+              case 'memory':
+                _showMemoryStatus();
+                break;
+              case 'export':
+                _exportChat();
+                break;
+              case 'clear_chat':
+                _clearCurrentChat();
+                break;
+              case 'clear_all':
+                _clearMemory();
+                break;
+            }
+          },
+          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+            const PopupMenuItem<String>(
+              value: 'memory',
+              child: Row(
+                children: [
+                  Icon(Icons.memory, size: 20),
+                  SizedBox(width: 8),
+                  Text('Memory Status'),
+                ],
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'export',
+              child: Row(
+                children: [
+                  Icon(Icons.download, size: 20),
+                  SizedBox(width: 8),
+                  Text('Export Chat'),
+                ],
+              ),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'clear_chat',
+              child: Row(
+                children: [
+                  Icon(Icons.cleaning_services, size: 20),
+                  SizedBox(width: 8),
+                  Text('Clear Chat'),
+                ],
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'clear_all',
+              child: Row(
+                children: [
+                  Icon(Icons.delete_forever, size: 20, color: Colors.red),
+                  SizedBox(width: 8),
+                  Text('Clear All Data', style: TextStyle(color: Colors.red)),
+                ],
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -719,6 +968,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   : null,
             ),
           ),
+          ListTile(
+            leading: const Icon(Icons.add_circle_outline, color: Colors.blue),
+            title: const Text('New Chat', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+            onTap: () {
+              Navigator.pop(context);
+              _createNewChat();
+            },
+          ),
+          const Divider(),
           Expanded(
             child: _isLoadingSessions
                 ? const Center(child: CircularProgressIndicator())
