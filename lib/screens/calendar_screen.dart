@@ -10,6 +10,7 @@ import '../services/sync_service.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'package:intl/intl.dart';
 
 class CalendarScreen extends StatefulWidget {
   final String? highlightEventId; // NEW: Event ID to highlight
@@ -1149,18 +1150,21 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
     final isNew = existingEvent == null;
     final String eventId = existingEvent?['id']?.toString() ?? const Uuid().v4();
 
+    // Format dates to match backend expectation (yyyy-MM-dd HH:mm:ss)
+    final DateFormat formatter = DateFormat('yyyy-MM-dd HH:mm:ss');
+    final String formattedStartTime = formatter.format(startTime);
+    final String formattedEndTime = formatter.format(endTime);
+
     final eventData = {
       "id": eventId,
       "title": title,
       "description": "",
-      "start_time": startTime.toIso8601String(),
-      "end_time": endTime.toIso8601String(),
+      "start_time": formattedStartTime,
+      "end_time": formattedEndTime,
       "category": category,
       "priority": "medium",
       "is_all_day": timeString == 'All Day' ? 1 : 0,
     };
-    
-    // Optimistic UI update (reload from local after save)
     
     // Save to local DB
     await _dbHelper.insert('events', {
@@ -1236,10 +1240,7 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
              final index = eventsList.indexWhere((e) => e['id'].toString() == eventId);
              if (index >= 0) {
                eventsList[index]['id'] = newId;
-               // We don't need to setState here because the UI will be updated on next build 
-               // or we can call setState to be safe if we want immediate reflection in the UI
-               // though _loadEventsFromLocal() was called earlier which loaded the old ID.
-               // Let's just reload from local again to be sure everything is consistent
+               // Reload from local to ensure consistency
                await _loadEventsFromLocal();
              }
            }
