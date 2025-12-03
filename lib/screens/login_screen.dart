@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -14,8 +13,7 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen>
-    with TickerProviderStateMixin {
+class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
@@ -26,37 +24,9 @@ class _LoginScreenState extends State<LoginScreen>
   bool _obscurePassword = true;
   bool _isEmailValid = false;
 
-  late AnimationController _heroAnimationController;
-  late AnimationController _formAnimationController;
-  late AnimationController _loadingController;
-
   @override
   void initState() {
     super.initState();
-
-    _heroAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    );
-
-    _formAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    _loadingController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-
-    // Start animations with mounted checks
-    _heroAnimationController.forward();
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) { // Safe animation start, I hope at least
-        _formAnimationController.forward();
-      }
-    });
-
     // Email validation listener
     _emailController.addListener(_validateEmail);
   }
@@ -76,9 +46,6 @@ class _LoginScreenState extends State<LoginScreen>
     _passwordController.dispose();
     _emailFocusNode.dispose();
     _passwordFocusNode.dispose();
-    _heroAnimationController.dispose();
-    _formAnimationController.dispose();
-    _loadingController.dispose();
     super.dispose();
   }
 
@@ -125,25 +92,8 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _buildHeroSection() {
     return Column(
       children: [
-        // Logo with animation
-        AnimatedBuilder(
-          animation: _heroAnimationController,
-          builder: (context, child) {
-            return Transform.scale(
-              scale: Tween<double>(begin: 0.0, end: 1.0)
-                  .animate(CurvedAnimation(
-                parent: _heroAnimationController,
-                curve: const Interval(0.0, 0.6, curve: Curves.elasticOut),
-              ))
-                  .value,
-              child: const AppLogo(size: 88, showShadow: true),
-            );
-          },
-        )
-            .animate(delay: 200.ms)
-            .shimmer(duration: 1000.ms)
-            .then()
-            .shake(hz: 4, curve: Curves.easeInOutCubic),
+        // Logo
+        const AppLogo(size: 88, showShadow: true),
 
         const SizedBox(height: AppConstants.spacingL),
 
@@ -155,10 +105,7 @@ class _LoginScreenState extends State<LoginScreen>
             fontWeight: FontWeight.w800,
           ),
           textAlign: TextAlign.center,
-        )
-            .animate(delay: 400.ms)
-            .fadeIn(duration: 600.ms)
-            .slideY(begin: 0.3, end: 0),
+        ),
 
         const SizedBox(height: AppConstants.spacingS),
 
@@ -168,45 +115,28 @@ class _LoginScreenState extends State<LoginScreen>
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
           textAlign: TextAlign.center,
-        )
-            .animate(delay: 600.ms)
-            .fadeIn(duration: 600.ms)
-            .slideY(begin: 0.3, end: 0),
+        ),
       ],
     );
   }
 
   Widget _buildFormSection() {
-    return AnimatedBuilder(
-      animation: _formAnimationController,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(
-            0,
-            30 * (1 - _formAnimationController.value),
-          ),
-          child: Opacity(
-            opacity: _formAnimationController.value,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Email Field
-                _buildEmailField(),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Email Field
+        _buildEmailField(),
 
-                const SizedBox(height: AppConstants.spacingM),
+        const SizedBox(height: AppConstants.spacingM),
 
-                // Password Field
-                _buildPasswordField(),
+        // Password Field
+        _buildPasswordField(),
 
-                const SizedBox(height: AppConstants.spacingL),
+        const SizedBox(height: AppConstants.spacingL),
 
-                // Sign In Button
-                _buildSignInButton(),
-              ],
-            ),
-          ),
-        );
-      },
+        // Sign In Button
+        _buildSignInButton(),
+      ],
     );
   }
 
@@ -372,7 +302,7 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         ),
       ],
-    ).animate(delay: 800.ms).fadeIn(duration: 600.ms).slideY(begin: 0.2, end: 0);
+    );
   }
 
   Widget _buildSignUpLink() {
@@ -380,19 +310,7 @@ class _LoginScreenState extends State<LoginScreen>
       onPressed: _isLoading ? null : () {
         Navigator.push(
           context,
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const SignUpScreen(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return SlideTransition(
-                position: animation.drive(
-                  Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
-                      .chain(CurveTween(curve: Curves.easeInOutCubic)),
-                ),
-                child: child,
-              );
-            },
-            transitionDuration: AppConstants.normalAnimation,
-          ),
+          MaterialPageRoute(builder: (context) => const SignUpScreen()),
         );
       },
       child: RichText(
@@ -413,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen>
           ],
         ),
       ),
-    ).animate(delay: 1000.ms).fadeIn(duration: 600.ms);
+    );
   }
 
   // Authentication methods with enhanced error handling
@@ -421,7 +339,6 @@ class _LoginScreenState extends State<LoginScreen>
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
-    if (mounted) _loadingController.repeat();
 
     try {
       final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
@@ -461,20 +378,17 @@ class _LoginScreenState extends State<LoginScreen>
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
-        _loadingController.stop();
       }
     }
   }
 
   Future<void> _signInWithGoogle() async {
     setState(() => _isLoading = true);
-    if (mounted) _loadingController.repeat();
 
     try {
       final googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) {
         setState(() => _isLoading = false);
-        _loadingController.stop();
         return;
       }
 
@@ -496,7 +410,6 @@ class _LoginScreenState extends State<LoginScreen>
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
-        _loadingController.stop();
       }
     }
   }

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 
 class SyncLoadingDialog extends StatelessWidget {
   final String message;
@@ -27,7 +26,7 @@ class SyncLoadingDialog extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Cool animated icon
+            // Simple icon
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -38,8 +37,7 @@ class SyncLoadingDialog extends StatelessWidget {
                 Icons.cloud_sync,
                 size: 48,
                 color: Theme.of(context).colorScheme.primary,
-              ).animate(onPlay: (controller) => controller.repeat())
-                  .rotate(duration: 2000.ms, curve: Curves.easeInOut),
+              ),
             ),
             const SizedBox(height: 24),
             Text(
@@ -59,13 +57,10 @@ class SyncLoadingDialog extends StatelessWidget {
             const SizedBox(height: 24),
             LinearProgressIndicator(
               borderRadius: BorderRadius.circular(8),
-            ).animate(onPlay: (controller) => controller.repeat())
-                .shimmer(duration: 1500.ms, color: Colors.white.withOpacity(0.5)),
+            ),
           ],
         ),
-      ).animate()
-          .scale(duration: 400.ms, curve: Curves.easeOutBack)
-          .fadeIn(duration: 300.ms),
+      ),
     );
   }
 }
