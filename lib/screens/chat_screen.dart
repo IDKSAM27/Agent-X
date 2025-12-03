@@ -262,7 +262,125 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // --- Message Handling ---
+  Future<void> _deleteSession(dynamic sessionId) async {
+    final confirmed = await _showConfirmDialog(
+      title: 'Delete Chat',
+      content: 'Are you sure you want to delete this chat?',
+      confirmText: 'Delete',
+      isDestructive: true,
+    );
+
+    if (!confirmed) return;
+
+    await _dbHelper.delete('chat_sessions', sessionId.toString());
+    
+    setState(() {
+      _sessions.removeWhere((s) => s['id'] == sessionId);
+      if (_currentSessionId == sessionId) {
+        _createNewChat();
+      }
+    });
+
+    if (!_isOnline) {
+      await _dbHelper.addToSyncQueue(
+        'chat_session',
+        'delete',
+        sessionId.toString(),
+        jsonEncode({'id': sessionId}),
+      );
+      _showInfoSnackBar('Chat deleted offline. Will sync when online.');
+      return;
+    }
+
+    try {
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) return;
+
+      final response = await dio.delete(
+        '/api/chats/$sessionId',
+        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
+      );
+
+      if (response.statusCode != 200 || response.data['status'] != 'success') {
+         _showErrorMessage('Failed to delete chat on server');
+      }
+    } catch (e) {
+      print('❌ Error deleting session: $e');
+      _showErrorMessage('Failed to delete chat');
+    }
+  }
+
+  Future<void> _renameSession(dynamic sessionId, String currentTitle) async {
+    final controller = TextEditingController(text: currentTitle);
+    final newTitle = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Rename Chat'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Enter new chat name',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Rename'),
+          ),
+        ],
+      ),
+    );
+
+    if (newTitle == null || newTitle.isEmpty || newTitle == currentTitle) return;
+
+    await _dbHelper.update('chat_sessions', {
+      'id': sessionId,
+      'title': newTitle,
+    }, 'id');
+
+    setState(() {
+      final index = _sessions.indexWhere((s) => s['id'] == sessionId);
+      if (index != -1) {
+        _sessions[index]['title'] = newTitle;
+      }
+    });
+
+    if (!_isOnline) {
+      await _dbHelper.addToSyncQueue(
+        'chat_session',
+        'update',
+        sessionId.toString(),
+        jsonEncode({'id': sessionId, 'title': newTitle}),
+      );
+      _showInfoSnackBar('Chat renamed offline. Will sync when online.');
+      return;
+    }
+
+    try {
+      final idToken = await _getFirebaseIdToken();
+      if (idToken == null) return;
+
+      final response = await dio.patch(
+        '/api/chats/$sessionId',
+        data: {'title': newTitle},
+        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
+      );
+
+      if (response.statusCode == 200 && response.data['status'] == 'success') {
+        _showSuccessSnackBar('Chat renamed successfully');
+      }
+    } catch (e) {
+      print('❌ Error renaming session: $e');
+      _showErrorMessage('Failed to rename chat');
+    }
+  }
 
   void _sendMessage() async {
     final text = _controller.text.trim();
@@ -577,12 +695,21 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildDrawer() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final headerTextColor = isDark ? Colors.black87 : Colors.white;
+
     return Drawer(
       child: Column(
         children: [
           UserAccountsDrawerHeader(
-            accountName: Text(_auth.currentUser?.displayName ?? 'User'),
-            accountEmail: Text(_auth.currentUser?.email ?? ''),
+            accountName: Text(
+              _auth.currentUser?.displayName ?? 'User',
+              style: TextStyle(color: headerTextColor, fontWeight: FontWeight.bold),
+            ),
+            accountEmail: Text(
+              _auth.currentUser?.email ?? '',
+              style: TextStyle(color: headerTextColor),
+            ),
             currentAccountPicture: CircleAvatar(
               backgroundImage: _auth.currentUser?.photoURL != null
                   ? CachedNetworkImageProvider(_auth.currentUser!.photoURL!)
@@ -608,6 +735,38 @@ class _ChatScreenState extends State<ChatScreen> {
                           Navigator.pop(context);
                           _loadSession(session['id']);
                         },
+                        trailing: PopupMenuButton<String>(
+                          icon: const Icon(Icons.more_vert),
+                          onSelected: (value) {
+                            if (value == 'rename') {
+                              _renameSession(session['id'], session['title'] ?? 'New Chat');
+                            } else if (value == 'delete') {
+                              _deleteSession(session['id']);
+                            }
+                          },
+                          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                            const PopupMenuItem<String>(
+                              value: 'rename',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.edit, size: 20),
+                                  SizedBox(width: 8),
+                                  Text('Rename'),
+                                ],
+                              ),
+                            ),
+                            const PopupMenuItem<String>(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.delete, size: 20, color: Colors.red),
+                                  SizedBox(width: 8),
+                                  Text('Delete', style: TextStyle(color: Colors.red)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       );
                     },
                   ),
