@@ -23,7 +23,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -57,6 +57,16 @@ class DatabaseHelper {
         )
       ''');
     }
+    
+    if (oldVersion < 3) {
+      // Add priority column to events table
+      // Check if column exists first to be safe (though version check should suffice)
+      try {
+        await db.execute('ALTER TABLE events ADD COLUMN priority TEXT DEFAULT "medium"');
+      } catch (e) {
+        print("Column priority might already exist: $e");
+      }
+    }
   }
 
 
@@ -88,6 +98,7 @@ class DatabaseHelper {
         start_time TEXT,
         end_time TEXT,
         category TEXT,
+        priority TEXT,
         is_all_day INTEGER,
         is_synced INTEGER DEFAULT 1,
         is_deleted INTEGER DEFAULT 0,
