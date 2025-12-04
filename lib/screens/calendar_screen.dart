@@ -10,6 +10,7 @@ import '../services/sync_service.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'package:intl/intl.dart';
 
 class CalendarScreen extends StatefulWidget {
   final String? highlightEventId; // NEW: Event ID to highlight
@@ -569,121 +570,122 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
   Widget _buildEventCard(Map<String, dynamic> event, int index) {
     final isHighlighted = event['id'].toString() == _highlightedEventId;
 
-    return AnimatedBuilder(
-      animation: _highlightAnimation,
-      builder: (context, child) {
-        return Container(
-          margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
+      decoration: isHighlighted
+          ? BoxDecoration(
+        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+            blurRadius: 10,
+            spreadRadius: 1,
+          ),
+        ],
+      )
+          : null,
+      child: Card(
+        elevation: 0,
+        child: Container(
           decoration: isHighlighted
               ? BoxDecoration(
             borderRadius: BorderRadius.circular(AppConstants.radiusM),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withOpacity(
-                  0.3 * _highlightAnimation.value,
-                ),
-                blurRadius: 20 * _highlightAnimation.value,
-                spreadRadius: 2 * _highlightAnimation.value,
-              ),
-            ],
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary,
+              width: 2,
+            ),
           )
               : null,
-          child: Card(
-            elevation: isHighlighted ? 4 * _highlightAnimation.value : 0,
-            child: Container(
-              decoration: isHighlighted
-                  ? BoxDecoration(
-                borderRadius: BorderRadius.circular(AppConstants.radiusM),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(
-                    0.6 * _highlightAnimation.value,
-                  ),
-                  width: 2 * _highlightAnimation.value,
-                ),
-              )
-                  : null,
-              child: ListTile(
-                leading: Container(
-                  width: 12,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: event['color'] ?? Theme.of(context).colorScheme.primary,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                ),
-                title: Text(
-                  event['title'],
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: Row(
-                  children: [
-                    Icon(
-                      Icons.access_time,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: AppConstants.spacingS),
-                    Text(event['time']),
-                    const SizedBox(width: AppConstants.spacingM),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: (event['color'] ?? Theme.of(context).colorScheme.primary)
-                            .withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        event['type'],
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: event['color'] ?? Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                trailing: PopupMenuButton(
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Row(
-                        children: [
-                          Icon(Icons.edit, size: 20),
-                          SizedBox(width: 12),
-                          Text('Edit'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete, size: 20, color: Colors.red),
-                          SizedBox(width: 12),
-                          Text('Delete', style: TextStyle(color: Colors.red)),
-                        ],
-                      ),
-                    ),
-                  ],
-                  onSelected: (value) => _handleEventAction(value as String, event),
-                ),
-                onTap: () => _showEventDetails(event),
+          child: ListTile(
+            leading: Container(
+              width: 12,
+              height: 40,
+              decoration: BoxDecoration(
+                color: event['color'] ?? Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(6),
               ),
             ),
+            title: Text(
+              event['title'],
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Row(
+              children: [
+                Icon(
+                  Icons.access_time,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: AppConstants.spacingS),
+                Text(event['time']),
+                const SizedBox(width: AppConstants.spacingM),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: (event['color'] ?? Theme.of(context).colorScheme.primary)
+                        .withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    event['type'],
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: event['color'] ?? Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            trailing: PopupMenuButton(
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'edit',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit, size: 20),
+                      SizedBox(width: 12),
+                      Text('Edit'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete, size: 20, color: Colors.red),
+                      SizedBox(width: 12),
+                      Text('Delete', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
+              onSelected: (value) => _handleEventAction(value as String, event),
+            ),
+            onTap: () => _showEventDetails(event),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
-  void _showCreateEventDialog() {
+  void _showCreateEventDialog({Map<String, dynamic>? existingEvent}) {
     // Reset state for new event creation
     _resetEventFormState();
+
+    // If editing an existing event, populate the form fields
+    if (existingEvent != null) {
+      _eventTitleController = TextEditingController(text: existingEvent['title'] ?? '');
+      _eventSelectedTime = _parseTimeString(existingEvent['time']);
+      _eventSelectedCategory = existingEvent['type'] ?? 'general';
+      _eventIsAllDay = existingEvent['isAllDay'] ?? false;
+    } else {
+      _eventTitleController = TextEditingController();
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1149,18 +1151,21 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
     final isNew = existingEvent == null;
     final String eventId = existingEvent?['id']?.toString() ?? const Uuid().v4();
 
+    // Format dates to match backend expectation (yyyy-MM-dd HH:mm:ss)
+    final DateFormat formatter = DateFormat('yyyy-MM-dd HH:mm:ss');
+    final String formattedStartTime = formatter.format(startTime);
+    final String formattedEndTime = formatter.format(endTime);
+
     final eventData = {
       "id": eventId,
       "title": title,
       "description": "",
-      "start_time": startTime.toIso8601String(),
-      "end_time": endTime.toIso8601String(),
+      "start_time": formattedStartTime,
+      "end_time": formattedEndTime,
       "category": category,
       "priority": "medium",
       "is_all_day": timeString == 'All Day' ? 1 : 0,
     };
-    
-    // Optimistic UI update (reload from local after save)
     
     // Save to local DB
     await _dbHelper.insert('events', {
@@ -1222,7 +1227,25 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       }
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        // await _loadEventsFromBackend(); // Optional if we trust local
+        if (isNew) {
+           final newId = response.data['event_id'].toString();
+           // Update local DB with new ID
+           await _dbHelper.updateEntityId('events', eventId, newId);
+           
+           // Update in-memory list
+           // We need to find the event in the map and update its ID
+           // Since _events is Map<DateTime, List<Map<String, dynamic>>>, we iterate
+           final normalizedDate = _normalizeDate(startTime);
+           if (_events.containsKey(normalizedDate)) {
+             final eventsList = _events[normalizedDate]!;
+             final index = eventsList.indexWhere((e) => e['id'].toString() == eventId);
+             if (index >= 0) {
+               eventsList[index]['id'] = newId;
+               // Reload from local to ensure consistency
+               await _loadEventsFromLocal();
+             }
+           }
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

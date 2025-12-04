@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../core/constants/app_constants.dart';
@@ -13,8 +12,7 @@ class SignUpScreen extends StatefulWidget {
   State<SignUpScreen> createState() => _SignUpScreenState();
 }
 
-class _SignUpScreenState extends State<SignUpScreen>
-    with TickerProviderStateMixin {
+class _SignUpScreenState extends State<SignUpScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
@@ -35,36 +33,9 @@ class _SignUpScreenState extends State<SignUpScreen>
   bool _isProfessionValid = false;
   bool _agreesToTerms = false;
 
-  late AnimationController _heroAnimationController;
-  late AnimationController _formAnimationController;
-  late AnimationController _loadingController;
-
   @override
   void initState() {
     super.initState();
-
-    _heroAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    );
-
-    _formAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    _loadingController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
-
-    // Start animations
-    _heroAnimationController.forward();
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if(mounted) { // Safe animation startup
-        _formAnimationController.forward();
-      }
-    });
 
     // Add listeners for validation
     _emailController.addListener(_validateEmail);
@@ -118,9 +89,6 @@ class _SignUpScreenState extends State<SignUpScreen>
     _passwordFocusNode.dispose();
     _confirmPasswordFocusNode.dispose();
     _professionFocusNode.dispose();
-    _heroAnimationController.dispose();
-    _formAnimationController.dispose();
-    _loadingController.dispose();
     super.dispose();
   }
 
@@ -181,25 +149,8 @@ class _SignUpScreenState extends State<SignUpScreen>
   Widget _buildHeroSection() {
     return Column(
       children: [
-        // Logo with animation
-        AnimatedBuilder(
-          animation: _heroAnimationController,
-          builder: (context, child) {
-            return Transform.scale(
-              scale: Tween<double>(begin: 0.0, end: 1.0)
-                  .animate(CurvedAnimation(
-                parent: _heroAnimationController,
-                curve: const Interval(0.0, 0.6, curve: Curves.elasticOut),
-              ))
-                  .value,
-              child: const AppLogo(size: 88, showShadow: true),
-            );
-          },
-        )
-            .animate(delay: 200.ms)
-            .shimmer(duration: 1000.ms)
-            .then()
-            .shake(hz: 4, curve: Curves.easeInOutCubic),
+        // Logo
+        const AppLogo(size: 88, showShadow: true),
 
         const SizedBox(height: AppConstants.spacingL),
 
@@ -211,10 +162,7 @@ class _SignUpScreenState extends State<SignUpScreen>
             fontWeight: FontWeight.w800,
           ),
           textAlign: TextAlign.center,
-        )
-            .animate(delay: 400.ms)
-            .fadeIn(duration: 600.ms)
-            .slideY(begin: 0.3, end: 0),
+        ),
 
         const SizedBox(height: AppConstants.spacingS),
 
@@ -224,50 +172,33 @@ class _SignUpScreenState extends State<SignUpScreen>
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
           textAlign: TextAlign.center,
-        )
-            .animate(delay: 600.ms)
-            .fadeIn(duration: 600.ms)
-            .slideY(begin: 0.3, end: 0),
+        ),
       ],
     );
   }
 
   Widget _buildFormSection() {
-    return AnimatedBuilder(
-      animation: _formAnimationController,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(
-            0,
-            30 * (1 - _formAnimationController.value),
-          ),
-          child: Opacity(
-            opacity: _formAnimationController.value,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Email Field
-                _buildEmailField(),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Email Field
+        _buildEmailField(),
 
-                const SizedBox(height: AppConstants.spacingM),
+        const SizedBox(height: AppConstants.spacingM),
 
-                // Profession Field
-                _buildProfessionField(),
+        // Profession Field
+        _buildProfessionField(),
 
-                const SizedBox(height: AppConstants.spacingM),
+        const SizedBox(height: AppConstants.spacingM),
 
-                // Password Field
-                _buildPasswordField(),
+        // Password Field
+        _buildPasswordField(),
 
-                const SizedBox(height: AppConstants.spacingM),
+        const SizedBox(height: AppConstants.spacingM),
 
-                // Confirm Password Field
-                _buildConfirmPasswordField(),
-              ],
-            ),
-          ),
-        );
-      },
+        // Confirm Password Field
+        _buildConfirmPasswordField(),
+      ],
     );
   }
 
@@ -480,7 +411,7 @@ class _SignUpScreenState extends State<SignUpScreen>
           ),
         ),
       ],
-    ).animate(delay: 800.ms).fadeIn(duration: 600.ms).slideY(begin: 0.2, end: 0);
+    );
   }
 
   Widget _buildSignUpButton() {
@@ -524,7 +455,7 @@ class _SignUpScreenState extends State<SignUpScreen>
         )
             : const Text('Create Account'),
       ),
-    ).animate(delay: 1000.ms).fadeIn(duration: 600.ms).slideY(begin: 0.2, end: 0);
+    );
   }
 
   Widget _buildSignInLink() {
@@ -548,7 +479,7 @@ class _SignUpScreenState extends State<SignUpScreen>
           ],
         ),
       ),
-    ).animate(delay: 1200.ms).fadeIn(duration: 600.ms);
+    );
   }
 
   Future<void> _signUp() async {
@@ -560,7 +491,6 @@ class _SignUpScreenState extends State<SignUpScreen>
     }
 
     setState(() => _isLoading = true);
-    _loadingController.repeat();
 
     HapticFeedback.lightImpact();
 
@@ -606,7 +536,6 @@ class _SignUpScreenState extends State<SignUpScreen>
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
-        _loadingController.stop();
       }
     }
   }

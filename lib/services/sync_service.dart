@@ -95,22 +95,36 @@ class SyncService {
     final token = await FirebaseAuth.instance.currentUser?.getIdToken();
     if (token == null) return;
 
+    // Map to track ID updates within this sync batch
+    // Old ID (UUID) -> New ID (Backend Integer ID)
+    final Map<String, String> idMap = {};
+
     for (final item in queue) {
       try {
         final entityType = item['entity_type'];
         final operation = item['operation'];
         final payload = jsonDecode(item['payload']);
         final id = item['id'];
-        final entityId = item['entity_id'];
+        
+        // Resolve entityId using the map if available
+        String entityId = item['entity_id'];
+        if (idMap.containsKey(entityId)) {
+          entityId = idMap[entityId]!;
+        }
 
         bool success = false;
+        String? newId;
         String? tableName;
 
         if (entityType == 'task') {
-          success = await _syncTask(operation, payload, token);
+          final result = await _syncTask(operation, payload, token, entityId);
+          success = result.success;
+          newId = result.newId;
           tableName = 'tasks';
         } else if (entityType == 'event') {
-          success = await _syncEvent(operation, payload, token);
+          final result = await _syncEvent(operation, payload, token, entityId);
+          success = result.success;
+          newId = result.newId;
           tableName = 'events';
         } else if (entityType == 'message') {
           success = await _syncMessage(operation, payload, token);
@@ -121,9 +135,15 @@ class SyncService {
         }
 
         if (success) {
+          // If we got a new ID (from a create operation), update our map
+          if (newId != null && item['entity_id'] != newId) {
+            idMap[item['entity_id']] = newId;
+          }
+          
           await _dbHelper.removeFromSyncQueue(id);
           if (tableName != null && operation != 'delete') {
-             await _dbHelper.markAsSynced(tableName, entityId);
+             // Use the latest entityId (which might be the newId)
+             await _dbHelper.markAsSynced(tableName, newId ?? entityId);
           }
         }
       } catch (e) {
@@ -133,41 +153,70 @@ class SyncService {
     }
   }
 
-  Future<bool> _syncTask(String operation, Map<String, dynamic> data, String token) async {
+  Future<({bool success, String? newId})> _syncTask(String operation, Map<String, dynamic> data, String token, String currentId) async {
     try {
       if (operation == 'create') {
-        // Remove local ID before sending to server if server assigns IDs
-        // But here we might want to keep the UUID if backend supports it, 
-        // or update local DB with server ID after response.
-        // For simplicity, let's assume we send the data and backend handles it.
-        // We might need to handle ID mapping if backend generates a new ID.
-        
-        // Adjust payload for backend
         final backendPayload = {
           'title': data['title'],
           'description': data['description'],
           'priority': data['priority'],
           'category': data['category'],
           'due_date': data['due_date'],
-          // 'id': data['id'] // If backend accepts client-generated IDs
         };
 
-        await _dio.post(
+        final response = await _dio.post(
           '/api/tasks',
           data: backendPayload,
           options: Options(headers: {'Authorization': 'Bearer $token'}),
         );
-        return true;
+        
+        if (response.statusCode == 200 && response.data['success'] == true) {
+          final newId = response.data['task_id'].toString();
+          
+          // Update local DB with new ID
+          await _dbHelper.updateEntityId('tasks', currentId, newId);
+          return (success: true, newId: newId);
+        }
+        return (success: false, newId: null);
+      } else if (operation == 'update') {
+        final backendPayload = {
+          'title': data['title'],
+          'description': data['description'],
+          'priority': data['priority'],
+          'category': data['category'],
+          'due_date': data['due_date'],
+        };
+        
+        await _dio.put(
+          '/api/tasks/$currentId',
+          data: backendPayload,
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        
+        if (data.containsKey('is_completed')) {
+           await _dio.post(
+            '/api/tasks/$currentId/complete',
+            data: {'completed': data['is_completed']},
+            options: Options(headers: {'Authorization': 'Bearer $token'}),
+          );
+        }
+        
+        return (success: true, newId: null);
+      } else if (operation == 'delete') {
+        await _dio.delete(
+          '/api/tasks/$currentId',
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        return (success: true, newId: null);
       }
-      // Implement update/delete similarly
-      return true;
+      return (success: true, newId: null);
     } catch (e) {
       print('Failed to sync task: $e');
-      return false;
+      return (success: false, newId: null);
     }
   }
 
-  Future<bool> _syncEvent(String operation, Map<String, dynamic> data, String token) async {
+  Future<({bool success, String? newId})> _syncEvent(String operation, Map<String, dynamic> data, String token, String currentId) async {
     try {
       if (operation == 'create') {
          final backendPayload = {
@@ -176,20 +225,52 @@ class SyncService {
           'start_time': data['start_time'],
           'end_time': data['end_time'],
           'category': data['category'],
-          'is_all_day': data['is_all_day'] == 1,
+          'priority': data['priority'],
+          'location': data['location'],
         };
         
-        await _dio.post(
+        final response = await _dio.post(
           '/api/events',
           data: backendPayload,
           options: Options(headers: {'Authorization': 'Bearer $token'}),
         );
-        return true;
+        
+        if (response.statusCode == 200 && response.data['success'] == true) {
+          final newId = response.data['event_id'].toString();
+          
+          // Update local DB with new ID
+          await _dbHelper.updateEntityId('events', currentId, newId);
+          return (success: true, newId: newId);
+        }
+        return (success: false, newId: null);
+      } else if (operation == 'update') {
+         final backendPayload = {
+          'title': data['title'],
+          'description': data['description'],
+          'start_time': data['start_time'],
+          'end_time': data['end_time'],
+          'category': data['category'],
+          'priority': data['priority'],
+          'location': data['location'],
+        };
+        
+        await _dio.put(
+          '/api/events/$currentId',
+          data: backendPayload,
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        return (success: true, newId: null);
+      } else if (operation == 'delete') {
+        await _dio.delete(
+          '/api/events/$currentId',
+          options: Options(headers: {'Authorization': 'Bearer $token'}),
+        );
+        return (success: true, newId: null);
       }
-      return true;
+      return (success: true, newId: null);
     } catch (e) {
       print('Failed to sync event: $e');
-      return false;
+      return (success: false, newId: null);
     }
   }
   Future<bool> _syncMessage(String operation, Map<String, dynamic> data, String token) async {

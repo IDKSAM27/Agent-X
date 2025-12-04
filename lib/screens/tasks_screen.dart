@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
@@ -543,8 +543,8 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           physics: const AlwaysScrollableScrollPhysics(),
           padding: EdgeInsets.zero,
           children: [
-            _buildStatsCard().animate().slideY(begin: -0.2, duration: 400.ms),
-            _buildOriginalCategoryFilter().animate().slideX(begin: -0.2, duration: 500.ms),
+            _buildStatsCard(),
+            _buildOriginalCategoryFilter(),
             const SizedBox(height: 16),
             ..._filteredTasks.isEmpty
                 ? [_buildEmptyState()]
@@ -1144,232 +1144,197 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
           const SizedBox(height: AppConstants.spacingL),
           Text(
             message,
-            style: Theme
-                .of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(
-              color: Theme
-                  .of(context)
-                  .colorScheme
-                  .onSurfaceVariant,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
             textAlign: TextAlign.center,
           ),
         ],
       ),
-    ).animate().fadeIn(delay: 300.ms);
+    );
   }
 
   Widget _buildTaskCard(TaskItem task, int index) {
-    final isHighlighted = task.id == _highlightedTaskId;
-
-    return AnimatedBuilder(
-      animation: _highlightAnimation,
-      builder: (context, child) {
-        return Container(
-          margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
-          decoration: isHighlighted
-              ? BoxDecoration(
-            borderRadius: BorderRadius.circular(AppConstants.radiusM),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withOpacity(
-                  0.3 * _highlightAnimation.value,
-                ),
-                blurRadius: 20 * _highlightAnimation.value,
-                spreadRadius: 2 * _highlightAnimation.value,
-              ),
-            ],
-          )
-              : null,
-          child: Card(
-            elevation: isHighlighted ? 4 * _highlightAnimation.value : 0,
-            child: InkWell(
-              onTap: () => _showTaskDetails(task),
-              borderRadius: BorderRadius.circular(AppConstants.radiusM),
-              child: Container(
-                decoration: isHighlighted
-                    ? BoxDecoration(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusM),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.primary.withOpacity(
-                      0.6 * _highlightAnimation.value,
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
+      child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusM),
+          side: BorderSide(
+            color: Theme.of(context).colorScheme.outline.withOpacity(0.1),
+          ),
+        ),
+        child: InkWell(
+          onTap: () => _showTaskDetails(task),
+          borderRadius: BorderRadius.circular(AppConstants.radiusM),
+          child: Padding(
+            padding: AppConstants.cardPadding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Task header
+                Row(
+                  children: [
+                    // Priority indicator
+                    Container(
+                      width: 4,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: task.priorityColor,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                    width: 2 * _highlightAnimation.value,
-                  ),
-                )
-                    : null,
-                child: Padding(
-                  padding: AppConstants.cardPadding,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Task header
-                      Row(
+                    const SizedBox(width: AppConstants.spacingM),
+
+                    // Task content
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Priority indicator
-                          Container(
-                            width: 4,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: task.priorityColor,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                          const SizedBox(width: AppConstants.spacingM),
-
-                          // Task content
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        task.title,
-                                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                          decoration: task.isCompleted
-                                              ? TextDecoration.lineThrough
-                                              : null,
-                                          color: task.isCompleted
-                                              ? Theme.of(context).colorScheme.onSurfaceVariant
-                                              : null,
-                                        ),
-                                      ),
-                                    ),
-                                    // Completion checkbox
-                                    Checkbox(
-                                      value: task.isCompleted,
-                                      onChanged: (value) => _toggleTaskCompletion(task),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (task.description.isNotEmpty)
-                                  Text(
-                                    task.description,
-                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                    ),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  task.title,
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    decoration: task.isCompleted
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                    color: task.isCompleted
+                                        ? Theme.of(context).colorScheme.onSurfaceVariant
+                                        : null,
                                   ),
-                              ],
-                            ),
-                          ),
-
-                          // More options
-                          PopupMenuButton(
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(
-                                value: 'edit',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.edit, size: 20),
-                                    SizedBox(width: 12),
-                                    Text('Edit'),
-                                  ],
                                 ),
                               ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.delete, size: 20, color: Colors.red),
-                                    SizedBox(width: 12),
-                                    Text('Delete', style: TextStyle(color: Colors.red)),
-                                  ],
+                              // Completion checkbox
+                              Checkbox(
+                                value: task.isCompleted,
+                                onChanged: (value) => _toggleTaskCompletion(task),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(4),
                                 ),
                               ),
                             ],
-                            onSelected: (value) => _handleTaskAction(value as String, task),
                           ),
+                          if (task.description.isNotEmpty)
+                            Text(
+                              task.description,
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                         ],
                       ),
+                    ),
 
-                      // Task metadata (rest of your existing code...)
-                      const SizedBox(height: AppConstants.spacingM),
-                      Row(
-                        children: [
-                          // Category chip and other metadata...
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: task.priorityColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              task.category,
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: task.priorityColor,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
+                    // More options
+                    PopupMenuButton(
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit, size: 20),
+                              SizedBox(width: 12),
+                              Text('Edit'),
+                            ],
                           ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete, size: 20, color: Colors.red),
+                              SizedBox(width: 12),
+                              Text('Delete', style: TextStyle(color: Colors.red)),
+                            ],
+                          ),
+                        ),
+                      ],
+                      onSelected: (value) => _handleTaskAction(value as String, task),
+                    ),
+                  ],
+                ),
 
-                          const SizedBox(width: AppConstants.spacingM),
+                // Task metadata (rest of your existing code...)
+                const SizedBox(height: AppConstants.spacingM),
+                Row(
+                  children: [
+                    // Category chip and other metadata...
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: task.priorityColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        task.category,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: task.priorityColor,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
 
-                          // Due date
-                          if (task.dueDate != null) ...[
-                            Icon(
-                              Icons.schedule,
-                              size: 16,
-                              color: task.isOverdue
-                                  ? Theme.of(context).colorScheme.error
-                                  : Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: AppConstants.spacingS),
-                            Text(
-                              task.dueStatus,
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: task.isOverdue
-                                    ? Theme.of(context).colorScheme.error
-                                    : Theme.of(context).colorScheme.onSurfaceVariant,
-                                fontWeight: task.isOverdue ? FontWeight.w600 : null,
-                              ),
-                            ),
-                          ],
+                    const SizedBox(width: AppConstants.spacingM),
 
-                          const Spacer(),
-
-                          // Progress indicator
-                          if (task.progress > 0 && !task.isCompleted) ...[
-                            Text(
-                              '${(task.progress * 100).round()}%',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(width: AppConstants.spacingS),
-                            SizedBox(
-                              width: 40,
-                              height: 4,
-                              child: LinearProgressIndicator(
-                                value: task.progress,
-                                backgroundColor: Theme.of(context).colorScheme.outline.withOpacity(0.2),
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
+                    // Due date
+                    if (task.dueDate != null) ...[
+                      Icon(
+                        Icons.schedule,
+                        size: 16,
+                        color: task.isOverdue
+                            ? Theme.of(context).colorScheme.error
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: AppConstants.spacingS),
+                      Text(
+                        task.dueStatus,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: task.isOverdue
+                              ? Theme.of(context).colorScheme.error
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: task.isOverdue ? FontWeight.w600 : null,
+                        ),
                       ),
                     ],
-                  ),
+
+                    const Spacer(),
+
+                    // Progress indicator
+                    if (task.progress > 0 && !task.isCompleted) ...[
+                      Text(
+                        '${(task.progress * 100).round()}%',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: AppConstants.spacingS),
+                      SizedBox(
+                        width: 40,
+                        height: 4,
+                        child: LinearProgressIndicator(
+                          value: task.progress,
+                          backgroundColor: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-              ),
+              ],
             ),
           ),
-        );
-      },
-    ).animate(delay: (index * 100).ms).slideX(begin: 0.2).fadeIn();
+        ),
+      ),
+    );
   }
 
   void _showSortOptions() {
@@ -2246,8 +2211,19 @@ class _TasksScreenState extends State<TasksScreen> with TickerProviderStateMixin
       }
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        // Refresh tasks from backend to ensure consistency (optional)
-        // await _loadTasksFromBackend(); 
+        if (isNew) {
+           final newId = response.data['task_id'].toString();
+           // Update local DB with new ID
+           await _dbHelper.updateEntityId('tasks', taskId, newId);
+           
+           // Update in-memory list
+           setState(() {
+             final index = _tasks.indexWhere((t) => t.id == taskId);
+             if (index >= 0) {
+               _tasks[index] = _tasks[index].copyWith(id: newId);
+             }
+           });
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../services/news_service.dart';
 import '../models/news_models.dart';
 import '../widgets/enhanced_news_card.dart';
@@ -206,7 +205,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
               child: NewsInsightsWidget(
                 metadata: _metadata!,
                 onViewAnalytics: _showAnalytics,
-              ).animate().slideY(begin: -0.2, duration: 400.ms),
+              ),
             ),
           ),
         ],
@@ -221,7 +220,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
               onCategorySelected: (category) {
                 setState(() => _selectedCategory = category);
               },
-            ).animate().slideX(begin: -0.2, duration: 500.ms),
+            ),
           ),
         ),
 
@@ -240,9 +239,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
                   article: article,
                   onTap: () => _showArticleDetails(article),
                   onActionTap: _handleNewsAction,
-                ).animate(delay: (index * 100).ms)
-                    .slideX(begin: 0.2, duration: 400.ms)
-                    .fadeIn();
+                );
               },
               childCount: _filteredArticles.length,
             ),
@@ -284,7 +281,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
-    ).animate().fadeIn();
+    );
   }
 
   Widget _buildErrorState() {
@@ -355,7 +352,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
             ],
           ),
         ),
-      ).animate().fadeIn(),
+      ),
     );
   }
 

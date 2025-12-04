@@ -23,7 +23,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -57,6 +57,16 @@ class DatabaseHelper {
         )
       ''');
     }
+    
+    if (oldVersion < 3) {
+      // Add priority column to events table
+      // Check if column exists first to be safe (though version check should suffice)
+      try {
+        await db.execute('ALTER TABLE events ADD COLUMN priority TEXT DEFAULT "medium"');
+      } catch (e) {
+        print("Column priority might already exist: $e");
+      }
+    }
   }
 
 
@@ -88,6 +98,7 @@ class DatabaseHelper {
         start_time TEXT,
         end_time TEXT,
         category TEXT,
+        priority TEXT,
         is_all_day INTEGER,
         is_synced INTEGER DEFAULT 1,
         is_deleted INTEGER DEFAULT 0,
@@ -172,18 +183,66 @@ class DatabaseHelper {
   Future<int> update(String table, Map<String, dynamic> row, String columnId) async {
     final db = await database;
     String id = row[columnId];
-    return await db.update(table, row, where: '$columnId = ?', whereArgs: [id]);
+    
+    // Ensure we update metadata
+    final Map<String, dynamic> data = Map.from(row);
+    if (!data.containsKey('last_updated')) {
+      data['last_updated'] = DateTime.now().toIso8601String();
+    }
+    // If we are updating locally, we usually want to mark as unsynced (0)
+    // But sometimes we might be updating FROM sync (is_synced=1)
+    // So we respect the passed value if present, otherwise default to 0 (unsynced)
+    if (!data.containsKey('is_synced')) {
+      data['is_synced'] = 0;
+    }
+
+    return await db.update(table, data, where: '$columnId = ?', whereArgs: [id]);
   }
 
   Future<int> delete(String table, String id) async {
     final db = await database;
+    // Instead of hard delete, we might want soft delete for sync
+    // But for now, let's stick to the plan:
+    // If it's unsynced and we delete it, we just remove it.
+    // If it's synced, we need to mark it as deleted so we can sync the deletion.
+    // However, the current schema has is_deleted.
+    
+    // Check if item is synced
+    final List<Map<String, dynamic>> result = await db.query(table, where: 'id = ?', whereArgs: [id]);
+    if (result.isNotEmpty) {
+      final item = result.first;
+      if (item['is_synced'] == 1) {
+        // Soft delete
+        return await db.update(table, {
+          'is_deleted': 1,
+          'is_synced': 0,
+          'last_updated': DateTime.now().toIso8601String()
+        }, where: 'id = ?', whereArgs: [id]);
+      }
+    }
+    
     return await db.delete(table, where: 'id = ?', whereArgs: [id]);
   }
   
   // --- Specific Queries ---
   
+  Future<void> updateEntityId(String table, String oldId, String newId) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      // 1. Update the entity itself
+      await txn.update(table, {'id': newId, 'is_synced': 1}, where: 'id = ?', whereArgs: [oldId]);
+      
+      // 2. Update any pending sync queue items that reference this ID
+      // We only update items that were created AFTER the creation event (which should be rare if we process sequentially)
+      // But more importantly, if we have queued updates for this item, they need to point to the new ID.
+      await txn.update('sync_queue', {'entity_id': newId}, where: 'entity_id = ?', whereArgs: [oldId]);
+    });
+  }
+  
   Future<List<Map<String, dynamic>>> getUnsyncedItems(String table) async {
     final db = await database;
+    // Get items that are not synced AND not deleted (unless we want to sync deletions separately)
+    // Actually, sync queue handles the operations. This helper might be for initial load or recovery.
     return await db.query(table, where: 'is_synced = ?', whereArgs: [0]);
   }
   
@@ -213,8 +272,20 @@ class DatabaseHelper {
     await db.delete('sync_queue', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<void> deleteSyncedSessionMessages(int sessionId) async {
+  Future<void> deleteSyncedSessionMessages(dynamic sessionId) async {
     final db = await database;
     await db.delete('chat_messages', where: 'session_id = ? AND is_synced = 1', whereArgs: [sessionId]);
+  }
+
+  Future<void> clearAllTables() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('chat_messages');
+      await txn.delete('chat_sessions');
+      await txn.delete('tasks');
+      await txn.delete('events');
+      await txn.delete('news');
+      await txn.delete('sync_queue');
+    });
   }
 }

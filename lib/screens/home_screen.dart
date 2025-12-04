@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
@@ -385,7 +385,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-    ).animate().slideY(begin: -0.2, duration: 600.ms).fadeIn(duration: 600.ms);
+    );
   }
 
   Widget _buildMainFeatureCards() {
@@ -436,7 +436,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ],
-    ).animate(delay: 200.ms).slideX(begin: -0.2, duration: 600.ms).fadeIn();
+    );
   }
 
   Widget _buildQuickActions() {
@@ -481,7 +481,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ],
-    ).animate(delay: 400.ms).slideX(begin: 0.2, duration: 600.ms).fadeIn();
+    );
   }
 
   Widget _buildNewsSection() {
@@ -541,27 +541,17 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () => _showArticleDetails(article),
           )).toList()),
       ],
-    ).animate(delay: 600.ms).slideY(begin: 0.2, duration: 600.ms).fadeIn();
+    );
   }
 
   // Navigation methods
   void _navigateToChat() {
     Navigator.push(
       context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => ChatScreen(
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(
           profession: _profession ?? 'General',
         ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return SlideTransition(
-            position: animation.drive(
-              Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
-                  .chain(CurveTween(curve: Curves.easeInOutCubic)),
-            ),
-            child: child,
-          );
-        },
-        transitionDuration: AppConstants.normalAnimation,
       ),
     );
   }
@@ -569,12 +559,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _navigateToCalendar() {
     Navigator.push(
       context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const CalendarScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-        transitionDuration: AppConstants.normalAnimation,
+      MaterialPageRoute(
+        builder: (context) => const CalendarScreen(),
       ),
     );
   }
@@ -582,18 +568,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _navigateToTasks() {
     Navigator.push(
       context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const TasksScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return SlideTransition(
-            position: animation.drive(
-              Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
-                  .chain(CurveTween(curve: Curves.easeInOutCubic)),
-            ),
-            child: child,
-          );
-        },
-        transitionDuration: AppConstants.normalAnimation,
+      MaterialPageRoute(
+        builder: (context) => const TasksScreen(),
       ),
     );
   }
@@ -602,22 +578,12 @@ class _HomeScreenState extends State<HomeScreen> {
     // Pass refresh parameter to ensure fresh data
     Navigator.push(
       context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => NewsScreen(
+      MaterialPageRoute(
+        builder: (context) => NewsScreen(
           profession: _profession,
           location: 'India',
           forceRefresh: _newsArticles.isEmpty, // Refresh if no articles
         ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return SlideTransition(
-            position: animation.drive(
-              Tween(begin: const Offset(1.0, 0.0), end: Offset.zero)
-                  .chain(CurveTween(curve: Curves.easeInOutCubic)),
-            ),
-            child: child,
-          );
-        },
-        transitionDuration: AppConstants.normalAnimation,
       ),
     );
   }
@@ -625,17 +591,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void _navigateToClock() {
     Navigator.push(
       context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const ClockScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return ScaleTransition(
-            scale: animation.drive(
-              Tween(begin: 0.8, end: 1.0).chain(CurveTween(curve: Curves.easeInOutCubic)),
-            ),
-            child: child,
-          );
-        },
-        transitionDuration: AppConstants.normalAnimation,
+      MaterialPageRoute(
+        builder: (context) => const ClockScreen(),
       ),
     );
   }
