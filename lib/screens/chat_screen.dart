@@ -943,6 +943,35 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _showChatOptions(BuildContext context, dynamic sessionId, String currentTitle) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('Rename'),
+              onTap: () {
+                Navigator.pop(context);
+                _renameSession(sessionId, currentTitle);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete, color: Colors.red),
+              title: const Text('Delete', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(context);
+                _deleteSession(sessionId);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDrawer() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final headerTextColor = isDark ? Colors.black87 : Colors.white;
@@ -987,45 +1016,21 @@ class _ChatScreenState extends State<ChatScreen> {
                       final session = _sessions[index];
                       final isSelected = session['id'] == _currentSessionId;
                       return ListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
                         selected: isSelected,
-                        leading: const Icon(Icons.chat_bubble_outline),
-                        title: Text(session['title'] ?? 'New Chat'),
+                        title: Text(
+                          session['title'] ?? 'New Chat',
+                          style: const TextStyle(fontSize: 15),
+                        ),
                         onTap: () {
                           Navigator.pop(context);
                           _loadSession(session['id']);
                         },
-                        trailing: PopupMenuButton<String>(
-                          icon: const Icon(Icons.more_vert),
-                          onSelected: (value) {
-                            if (value == 'rename') {
-                              _renameSession(session['id'], session['title'] ?? 'New Chat');
-                            } else if (value == 'delete') {
-                              _deleteSession(session['id']);
-                            }
-                          },
-                          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                            const PopupMenuItem<String>(
-                              value: 'rename',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.edit, size: 20),
-                                  SizedBox(width: 8),
-                                  Text('Rename'),
-                                ],
-                              ),
-                            ),
-                            const PopupMenuItem<String>(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.delete, size: 20, color: Colors.red),
-                                  SizedBox(width: 8),
-                                  Text('Delete', style: TextStyle(color: Colors.red)),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                        onLongPress: () {
+                          _showChatOptions(context, session['id'], session['title'] ?? 'New Chat');
+                        },
                       );
                     },
                   ),
