@@ -976,11 +976,12 @@ class _ChatScreenState extends State<ChatScreen> {
               _createNewChat();
             },
           ),
-          const Divider(),
+          const Divider(height: 1),
           Expanded(
             child: _isLoadingSessions
                 ? const Center(child: CircularProgressIndicator())
                 : ListView.builder(
+                    padding: EdgeInsets.zero,
                     itemCount: _sessions.length,
                     itemBuilder: (context, index) {
                       final session = _sessions[index];
