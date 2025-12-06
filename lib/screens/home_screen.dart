@@ -11,12 +11,13 @@ import '../widgets/news_card.dart';
 import '../widgets/app_logo.dart';
 import '../core/constants/app_constants.dart';
 import 'chat_screen.dart';
-import 'clock_screen.dart';
 import 'calendar_screen.dart';
 import 'tasks_screen.dart';
+import 'notes_screen.dart';
 import 'news_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'profile_screen.dart';
+import 'briefing_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -399,6 +400,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         const SizedBox(height: AppConstants.spacingM),
+        DashboardCard(
+          title: 'Daily Briefing',
+          subtitle: 'Your morning summary',
+          icon: Icons.wb_sunny_rounded,
+          gradientColors: [
+            Colors.orange,
+            Colors.deepOrange,
+          ],
+          onTap: () => _navigateToBriefing(),
+        ),
+        const SizedBox(height: AppConstants.spacingM),
         Row(
           children: [
             Expanded(
@@ -472,10 +484,10 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(width: AppConstants.spacingM),
             Expanded(
               child: QuickActionTile(
-                label: 'Clock', // Moved clock here, or remove entirely
-                icon: Icons.access_time,
-                onTap: () => _navigateToClock(),
-                color: Theme.of(context).colorScheme.tertiary,
+                label: 'Notes', // Moved clock here, or remove entirely
+                icon: Icons.note_alt_outlined,
+                onTap: () => _navigateToNotes(),
+                color: Colors.purple,
               ),
             ),
           ],
@@ -574,6 +586,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _navigateToNotes() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const NotesScreen(),
+      ),
+    );
+  }
+
   void _navigateToNews() {
     // Pass refresh parameter to ensure fresh data
     Navigator.push(
@@ -588,11 +609,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _navigateToClock() {
+  void _navigateToBriefing() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const ClockScreen(),
+        builder: (context) => const BriefingScreen(),
       ),
     );
   }

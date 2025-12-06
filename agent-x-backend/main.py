@@ -32,8 +32,11 @@ from database.operations import (
     create_chat_session, get_user_chat_sessions, update_chat_session_title,
     delete_chat_session, get_chat_messages
 )
+from memory_manager import memory_manager
 from routes.news_router import router as news_router
 from services.news_scheduler import news_scheduler
+from services.smart_news_service import SmartNewsService
+from services.llm_service import LLMService
 
 # Load env variables
 load_dotenv()
@@ -793,6 +796,75 @@ async def get_events(current_user: dict = Depends(get_current_user)):
         logger.error(f"❌ Error getting events via API: {e}")
         return {"success": False, "events": [], "count": 0, "error": str(e)}
 
+@app.get("/api/briefing")
+async def get_daily_briefing(current_user: dict = Depends(get_current_user)):
+    """Get a daily briefing summary"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        profession = current_user.get("profession", "Professional")
+        
+        # 1. Get today's events
+        events = get_all_events(firebase_uid)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        todays_events = [e for e in events if e[3].startswith(today_str)]
+        
+        # 2. Get high priority tasks
+        tasks = get_user_tasks(firebase_uid, status="pending")
+        priority_tasks = [t for t in tasks if t[3] == "high"]
+        
+        # 3. Get news
+        news_service = SmartNewsService()
+        # Use fast context for chat which gives a good summary
+        news_context = await news_service.get_news_context_for_chat_fast(profession, "US")
+        
+        # 4. Generate Summary with LLM
+        gemini_api_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_api_key:
+            return {"status": "error", "message": "LLM not configured"}
+            
+        llm_service = LLMService(gemini_api_key)
+        
+        prompt = f"""
+        Generate a friendly, energetic morning briefing for a {profession}.
+        
+        User's Schedule for Today ({today_str}):
+        {todays_events if todays_events else "No events scheduled."}
+        
+        Top Priority Tasks:
+        {priority_tasks if priority_tasks else "No high priority tasks."}
+        
+        News Headlines:
+        {news_context}
+        
+        Format the response as a spoken paragraph. Start with "Good morning!". 
+        Keep it under 150 words. Focus on the most important items.
+        """
+        
+        # We use a direct generation here instead of the full agent process
+        # Assuming LLMService has a method for raw generation or we use the client directly
+        # Since LLMService.process_message is complex, let's use the internal client if accessible or add a method
+        # For now, let's try to use the gemini client directly if possible, or add a helper in LLMService.
+        # Looking at LLMService, it uses self.llm_client.generate_content
+        
+        # Use simple_chat method which is available in GeminiClient
+        from llm.gemini_client import GeminiClient
+        client = GeminiClient(gemini_api_key)
+        response_text = await client.simple_chat(prompt)
+        
+        return {
+            "status": "success",
+            "summary": response_text,
+            "data": {
+                "events_count": len(todays_events),
+                "tasks_count": len(priority_tasks),
+                "date": today_str
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error generating briefing: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.post("/api/tasks/{task_id}/complete")
 async def update_task_completion(
         task_id: int,
@@ -1044,6 +1116,51 @@ async def debug_user_profile(firebase_uid: str):
         }
     except Exception as e:
         return {"error": str(e)}
+
+# --- Notes Endpoints ---
+
+@app.post("/api/notes")
+async def create_note(request: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new note"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        title = request.get("title", "Untitled Note")
+        content = request.get("content", "")
+        category = request.get("category", "general")
+        
+        if not content:
+            return {"status": "error", "message": "Content is required"}
+            
+        note_id = await memory_manager.add_note(firebase_uid, title, content, category)
+        return {"status": "success", "note_id": note_id}
+    except Exception as e:
+        logger.error(f"❌ Error creating note: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/notes")
+async def get_notes(current_user: dict = Depends(get_current_user)):
+    """Get all notes for the user"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        notes = await memory_manager.get_notes(firebase_uid)
+        return {"status": "success", "notes": notes}
+    except Exception as e:
+        logger.error(f"❌ Error getting notes: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.delete("/api/notes/{note_id}")
+async def delete_note(note_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a note"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        success = await memory_manager.delete_note(firebase_uid, note_id)
+        if success:
+            return {"status": "success", "message": "Note deleted"}
+        else:
+            return {"status": "error", "message": "Note not found"}
+    except Exception as e:
+        logger.error(f"❌ Error deleting note: {e}")
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

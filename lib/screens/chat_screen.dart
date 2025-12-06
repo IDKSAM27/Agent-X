@@ -14,6 +14,7 @@ import '../widgets/enhanced_chat_bubble.dart';
 import '../models/chat_message.dart';
 import '../core/database/database_helper.dart';
 import '../services/sync_service.dart';
+import '../services/voice_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String profession;
@@ -33,6 +34,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final FocusNode _focusNode = FocusNode();
   final DatabaseHelper _dbHelper = DatabaseHelper();
   final SyncService _syncService = SyncService();
+  final VoiceService _voiceService = VoiceService();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   
   final Dio dio = Dio(BaseOptions(
@@ -49,12 +51,31 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isLoadingSessions = false;
   bool _isTyping = false;
   bool _isOnline = false;
+  bool _isListening = false;
   StreamSubscription<bool>? _onlineStatusSubscription;
 
   @override
   void initState() {
     super.initState();
     _initializeChat();
+    _initializeVoice();
+  }
+
+  Future<void> _initializeVoice() async {
+    await _voiceService.initialize();
+    _voiceService.onResult = (text) {
+      setState(() {
+        _controller.text = text;
+      });
+      // Optional: Auto-send after a pause? For now, let user tap send.
+    };
+    _voiceService.onListeningStateChanged = (isListening) {
+      if (mounted) {
+        setState(() {
+          _isListening = isListening;
+        });
+      }
+    };
   }
 
   @override
@@ -515,6 +536,9 @@ class _ChatScreenState extends State<ChatScreen> {
         timestamp: DateTime.now(),
         metadata: data['metadata'],
       );
+
+      // Speak the response
+      _voiceService.speak(data['response']);
 
       if (mounted) {
         setState(() {
@@ -1092,6 +1116,17 @@ class _ChatScreenState extends State<ChatScreen> {
               : const Icon(Icons.send),
             onPressed: _isTyping ? null : _sendMessage,
             color: Theme.of(context).colorScheme.primary,
+          ),
+          IconButton(
+            icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
+            onPressed: () {
+              if (_isListening) {
+                _voiceService.stopListening();
+              } else {
+                _voiceService.startListening();
+              }
+            },
+            color: _isListening ? Colors.red : Colors.grey,
           ),
         ],
       ),

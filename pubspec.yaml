@@ -43,6 +43,12 @@ dependencies:
   path_provider: ^2.1.5
   connectivity_plus: ^7.0.0
   uuid: ^4.5.2
+  shared_preferences: ^2.2.2
+
+  # Voice dependencies
+  speech_to_text: ^7.3.0
+  flutter_tts: ^3.8.3
+  permission_handler: ^11.3.0
 
 dev_dependencies:
   flutter_test:
