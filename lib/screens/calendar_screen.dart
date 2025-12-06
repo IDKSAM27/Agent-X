@@ -5,6 +5,12 @@ import '../core/constants/app_constants.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../core/config/api_config.dart';
+import '../core/database/database_helper.dart';
+import '../services/sync_service.dart';
+import 'package:uuid/uuid.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:intl/intl.dart';
 
 class CalendarScreen extends StatefulWidget {
   final String? highlightEventId; // NEW: Event ID to highlight
@@ -39,6 +45,11 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
     receiveTimeout: const Duration(seconds: 90),
   ));
 
+  final DatabaseHelper _dbHelper = DatabaseHelper();
+  final SyncService _syncService = SyncService();
+  StreamSubscription<bool>? _onlineStatusSubscription;
+  bool _isOnline = false;
+
   var logger = Logger();
 
   // Sample events data
@@ -72,11 +83,25 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       _selectedDay = DateTime.now();
     }
 
-    _loadEventsFromBackend();
+    _syncService.initialize();
+    _isOnline = _syncService.isOnline;
+    _onlineStatusSubscription = _syncService.onlineStatusStream.listen((isOnline) {
+      if (mounted) {
+        setState(() {
+          _isOnline = isOnline;
+        });
+        if (isOnline) {
+          _loadEventsFromBackend();
+        }
+      }
+    });
+
+    _loadEvents();
   }
 
   @override
   void dispose() {
+    _onlineStatusSubscription?.cancel();
     _eventTitleController?.dispose();
     _eventsScrollController.dispose(); // NEW: Dispose scroll controller
     _highlightAnimationController.dispose(); // NEW: Dispose animation
@@ -114,6 +139,37 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
     return await user?.getIdToken();
   }
 
+  Future<void> _loadEvents() async {
+    await _loadEventsFromLocal();
+    if (_isOnline) {
+      await _loadEventsFromBackend();
+    }
+  }
+
+  Future<void> _loadEventsFromLocal() async {
+    final data = await _dbHelper.queryAllRows('events');
+    setState(() {
+      _events.clear();
+      for (final e in data) {
+        if (e['is_deleted'] == 1) continue; // Skip deleted events
+        
+        final date = DateTime.parse(e['start_time']);
+        final normalized = DateTime(date.year, date.month, date.day);
+        final eventMap = {
+          'id': e['id'],
+          'title': e['title'],
+          'description': e['description'],
+          'time': _formatTimeFromDateTime(e['start_time']),
+          'type': e['category'] ?? 'general',
+          'color': _getCategoryColor(e['category'] ?? 'general'),
+          'isAllDay': e['is_all_day'] == 1,
+          'start_time': e['start_time'], // Keep original string for editing
+        };
+        _events[normalized] = (_events[normalized] ?? [])..add(eventMap);
+      }
+    });
+  }
+
   Future<void> _loadEventsFromBackend() async {
     try {
       final token = await _getFirebaseToken();
@@ -129,24 +185,26 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
 
       if (response.statusCode == 200 && response.data['success'] == true) {
         final List<dynamic> eventsJson = response.data['events'] ?? [];
-        setState(() {
-          _events.clear();
-          for (final e in eventsJson) {
-            final date = DateTime.parse(e['start_time']);
-            final normalized = DateTime(date.year, date.month, date.day);
-            final eventMap = {
-              'id': e['id'], // Include ID for highlighting
-              'title': e['title'],
-              'description': e['description'],
-              'time': _formatTimeFromDateTime(e['start_time']),
-              'type': e['category'] ?? 'general',
-              'color': Colors.blue,
-            };
-            _events[normalized] = (_events[normalized] ?? [])..add(eventMap);
-          }
-        });
+        
+        // Update local DB
+        for (final e in eventsJson) {
+           await _dbHelper.insert('events', {
+            'id': e['id'].toString(),
+            'title': e['title'],
+            'description': e['description'],
+            'start_time': e['start_time'],
+            'end_time': e['end_time'], // Assuming backend returns this
+            'category': e['category'],
+            'is_all_day': (e['is_all_day'] ?? false) ? 1 : 0,
+            'is_synced': 1,
+            'is_deleted': 0,
+            'last_updated': DateTime.now().toIso8601String(),
+          });
+        }
+        
+        await _loadEventsFromLocal();
 
-        print('✅ Loaded ${_events.values.expand((e) => e).length} events from backend');
+        print('✅ Loaded ${_events.values.expand((e) => e).length} events from backend and synced to local');
 
         // NEW: Auto-scroll and highlight after data loads
         if (_highlightedEventId != null) {
@@ -155,6 +213,16 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       }
     } catch (e) {
       print('❌ Error loading events: $e');
+    }
+  }
+
+  Color _getCategoryColor(String category) {
+    switch (category) {
+      case 'work': return Colors.blue;
+      case 'personal': return Colors.green;
+      case 'meeting': return Colors.orange;
+      case 'appointment': return Colors.purple;
+      default: return Colors.grey;
     }
   }
 
@@ -241,7 +309,15 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       // FIX 3: Handle keyboard overflow with resizeToAvoidBottomInset
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        title: const Text('Calendar'),
+        title: Row(
+          children: [
+            const Text('Calendar'),
+            if (!_isOnline) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.wifi_off, size: 16, color: Theme.of(context).colorScheme.error),
+            ],
+          ],
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
@@ -280,7 +356,16 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
 
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: RefreshIndicator(
-        onRefresh: _loadEventsFromBackend,
+        onRefresh: () async {
+          if (_isOnline) {
+             await _syncService.syncData(context: context);
+             await _loadEventsFromBackend();
+          } else {
+             ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('You are offline. Events are loaded from local storage.')),
+            );
+          }
+        },
         child: ListView(
           children: [
             // Calendar Widget
@@ -485,121 +570,122 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
   Widget _buildEventCard(Map<String, dynamic> event, int index) {
     final isHighlighted = event['id'].toString() == _highlightedEventId;
 
-    return AnimatedBuilder(
-      animation: _highlightAnimation,
-      builder: (context, child) {
-        return Container(
-          margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppConstants.spacingM),
+      decoration: isHighlighted
+          ? BoxDecoration(
+        borderRadius: BorderRadius.circular(AppConstants.radiusM),
+        boxShadow: [
+          BoxShadow(
+            color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+            blurRadius: 10,
+            spreadRadius: 1,
+          ),
+        ],
+      )
+          : null,
+      child: Card(
+        elevation: 0,
+        child: Container(
           decoration: isHighlighted
               ? BoxDecoration(
             borderRadius: BorderRadius.circular(AppConstants.radiusM),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withOpacity(
-                  0.3 * _highlightAnimation.value,
-                ),
-                blurRadius: 20 * _highlightAnimation.value,
-                spreadRadius: 2 * _highlightAnimation.value,
-              ),
-            ],
+            border: Border.all(
+              color: Theme.of(context).colorScheme.primary,
+              width: 2,
+            ),
           )
               : null,
-          child: Card(
-            elevation: isHighlighted ? 4 * _highlightAnimation.value : 0,
-            child: Container(
-              decoration: isHighlighted
-                  ? BoxDecoration(
-                borderRadius: BorderRadius.circular(AppConstants.radiusM),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.primary.withOpacity(
-                    0.6 * _highlightAnimation.value,
-                  ),
-                  width: 2 * _highlightAnimation.value,
-                ),
-              )
-                  : null,
-              child: ListTile(
-                leading: Container(
-                  width: 12,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: event['color'] ?? Theme.of(context).colorScheme.primary,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                ),
-                title: Text(
-                  event['title'],
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                subtitle: Row(
-                  children: [
-                    Icon(
-                      Icons.access_time,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: AppConstants.spacingS),
-                    Text(event['time']),
-                    const SizedBox(width: AppConstants.spacingM),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: (event['color'] ?? Theme.of(context).colorScheme.primary)
-                            .withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        event['type'],
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: event['color'] ?? Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                trailing: PopupMenuButton(
-                  itemBuilder: (context) => [
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: Row(
-                        children: [
-                          Icon(Icons.edit, size: 20),
-                          SizedBox(width: 12),
-                          Text('Edit'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete, size: 20, color: Colors.red),
-                          SizedBox(width: 12),
-                          Text('Delete', style: TextStyle(color: Colors.red)),
-                        ],
-                      ),
-                    ),
-                  ],
-                  onSelected: (value) => _handleEventAction(value as String, event),
-                ),
-                onTap: () => _showEventDetails(event),
+          child: ListTile(
+            leading: Container(
+              width: 12,
+              height: 40,
+              decoration: BoxDecoration(
+                color: event['color'] ?? Theme.of(context).colorScheme.primary,
+                borderRadius: BorderRadius.circular(6),
               ),
             ),
+            title: Text(
+              event['title'],
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            subtitle: Row(
+              children: [
+                Icon(
+                  Icons.access_time,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: AppConstants.spacingS),
+                Text(event['time']),
+                const SizedBox(width: AppConstants.spacingM),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: (event['color'] ?? Theme.of(context).colorScheme.primary)
+                        .withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    event['type'],
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: event['color'] ?? Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            trailing: PopupMenuButton(
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'edit',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit, size: 20),
+                      SizedBox(width: 12),
+                      Text('Edit'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete, size: 20, color: Colors.red),
+                      SizedBox(width: 12),
+                      Text('Delete', style: TextStyle(color: Colors.red)),
+                    ],
+                  ),
+                ),
+              ],
+              onSelected: (value) => _handleEventAction(value as String, event),
+            ),
+            onTap: () => _showEventDetails(event),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
-  void _showCreateEventDialog() {
+  void _showCreateEventDialog({Map<String, dynamic>? existingEvent}) {
     // Reset state for new event creation
     _resetEventFormState();
+
+    // If editing an existing event, populate the form fields
+    if (existingEvent != null) {
+      _eventTitleController = TextEditingController(text: existingEvent['title'] ?? '');
+      _eventSelectedTime = _parseTimeString(existingEvent['time']);
+      _eventSelectedCategory = existingEvent['type'] ?? 'general';
+      _eventIsAllDay = existingEvent['isAllDay'] ?? false;
+    } else {
+      _eventTitleController = TextEditingController();
+    }
 
     showModalBottomSheet(
       context: context,
@@ -1042,36 +1128,79 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
     );
   }
   Future<void> _saveEvent(String title, String timeString, Map<String, dynamic>? existingEvent, String category,) async {
+    final selectedDate = _selectedDay ?? DateTime.now();
+
+    // Parse the time string properly
+    final timeOfDay = timeString == 'All Day'
+        ? const TimeOfDay(hour: 0, minute: 0)
+        : _parseTimeString(timeString);
+
+    final startTime = timeString == 'All Day'
+        ? DateTime(selectedDate.year, selectedDate.month, selectedDate.day)
+        : DateTime(
+        selectedDate.year,
+        selectedDate.month,
+        selectedDate.day,
+        timeOfDay.hour,
+        timeOfDay.minute
+    );
+    
+    // Simple end time assumption (1 hour duration)
+    final endTime = startTime.add(const Duration(hours: 1));
+
+    final isNew = existingEvent == null;
+    final String eventId = existingEvent?['id']?.toString() ?? const Uuid().v4();
+
+    // Format dates to match backend expectation (yyyy-MM-dd HH:mm:ss)
+    final DateFormat formatter = DateFormat('yyyy-MM-dd HH:mm:ss');
+    final String formattedStartTime = formatter.format(startTime);
+    final String formattedEndTime = formatter.format(endTime);
+
+    final eventData = {
+      "id": eventId,
+      "title": title,
+      "description": "",
+      "start_time": formattedStartTime,
+      "end_time": formattedEndTime,
+      "category": category,
+      "priority": "medium",
+      "is_all_day": timeString == 'All Day' ? 1 : 0,
+    };
+    
+    // Save to local DB
+    await _dbHelper.insert('events', {
+      ...eventData,
+      'is_synced': _isOnline ? 1 : 0,
+      'is_deleted': 0,
+      'last_updated': DateTime.now().toIso8601String(),
+    });
+    
+    await _loadEventsFromLocal();
+
+    if (!_isOnline) {
+       await _dbHelper.addToSyncQueue(
+        'event',
+        isNew ? 'create' : 'update',
+        eventId,
+        jsonEncode(eventData),
+      );
+       
+       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Saved offline. Will sync when online.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
     try {
       final token = await _getFirebaseToken();
-      final selectedDate = _selectedDay ?? DateTime.now();
-
-      // Parse the time string properly
-      final timeOfDay = timeString == 'All Day'
-          ? const TimeOfDay(hour: 0, minute: 0)
-          : _parseTimeString(timeString);
-
-      final startTime = timeString == 'All Day'
-          ? DateTime(selectedDate.year, selectedDate.month, selectedDate.day)
-          : DateTime(
-          selectedDate.year,
-          selectedDate.month,
-          selectedDate.day,
-          timeOfDay.hour,
-          timeOfDay.minute
-      );
-
-      final eventData = {
-        "title": title,
-        "description": "",
-        "start_time": startTime.toIso8601String(),
-        "category": category,
-        "priority": "medium",
-      };
-
       Response response;
 
-      if (existingEvent == null) {
+      if (isNew) {
         // Create new event
         response = await _dio.post(
           '/api/events',
@@ -1085,7 +1214,6 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
         );
       } else {
         // Update existing event
-        final eventId = existingEvent['id'];
         response = await _dio.put(
           '/api/events/$eventId',
           data: eventData,
@@ -1099,25 +1227,52 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       }
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        await _loadEventsFromBackend();
+        if (isNew) {
+           final newId = response.data['event_id'].toString();
+           // Update local DB with new ID
+           await _dbHelper.updateEntityId('events', eventId, newId);
+           
+           // Update in-memory list
+           // We need to find the event in the map and update its ID
+           // Since _events is Map<DateTime, List<Map<String, dynamic>>>, we iterate
+           final normalizedDate = _normalizeDate(startTime);
+           if (_events.containsKey(normalizedDate)) {
+             final eventsList = _events[normalizedDate]!;
+             final index = eventsList.indexWhere((e) => e['id'].toString() == eventId);
+             if (index >= 0) {
+               eventsList[index]['id'] = newId;
+               // Reload from local to ensure consistency
+               await _loadEventsFromLocal();
+             }
+           }
+        }
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(existingEvent == null ? 'Event created!' : 'Event updated!'),
+              content: Text(isNew ? 'Event created!' : 'Event updated!'),
               backgroundColor: Colors.green,
             ),
           );
         }
       }
-
     } catch (e) {
       print('❌ Error saving event: $e');
+      
+       // Queue for retry
+       await _dbHelper.addToSyncQueue(
+        'event',
+        isNew ? 'create' : 'update',
+        eventId,
+        jsonEncode(eventData),
+      );
+       await _dbHelper.update('events', {'is_synced': 0}, 'id');
+       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to save event: ${e.toString()}'),
-            backgroundColor: Colors.red,
+            content: Text('Sync failed, queued for later: ${e.toString()}'),
+            backgroundColor: Colors.orange,
           ),
         );
       }
@@ -1241,9 +1396,21 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
     }
   }
   Future<void> _deleteEventFromBackend(Map<String, dynamic> event) async {
+    final eventId = event['id'].toString();
+    
+    // Optimistic delete from local
+    await _dbHelper.update('events', {'is_deleted': 1, 'is_synced': _isOnline ? 1 : 0}, 'id'); // Soft delete
+    // Or hard delete: await _dbHelper.delete('events', eventId);
+    
+    await _loadEventsFromLocal();
+    
+    if (!_isOnline) {
+      await _dbHelper.addToSyncQueue('event', 'delete', eventId, '{}');
+      return;
+    }
+
     try {
       final token = await _getFirebaseToken();
-      final eventId = event['id'];
 
       final response = await _dio.delete(
         '/api/events/$eventId',
@@ -1256,9 +1423,6 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       );
 
       if (response.statusCode == 200 && response.data['success'] == true) {
-        // Refresh events from backend
-        await _loadEventsFromBackend();
-
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1271,11 +1435,15 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
 
     } catch (e) {
       print('❌ Error deleting event: $e');
+      // Queue for retry
+      await _dbHelper.addToSyncQueue('event', 'delete', eventId, '{}');
+      await _dbHelper.update('events', {'is_synced': 0}, 'id');
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to delete event: ${e.toString()}'),
-            backgroundColor: Colors.red,
+            content: Text('Sync failed, queued for later: ${e.toString()}'),
+            backgroundColor: Colors.orange,
           ),
         );
       }

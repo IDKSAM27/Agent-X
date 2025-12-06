@@ -22,12 +22,11 @@ class QuickActionTile extends StatelessWidget {
 
     return Material(
       color: Colors.transparent,
-      child: InkWell(
+      child: GestureDetector(
         onTap: () {
           HapticFeedback.lightImpact();
           onTap();
         },
-        borderRadius: BorderRadius.circular(AppConstants.radiusM),
         child: Container(
           padding: const EdgeInsets.symmetric(
             vertical: AppConstants.spacingM,

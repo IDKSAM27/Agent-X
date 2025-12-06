@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
+
 import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/chat_message.dart';
 import '../core/constants/app_constants.dart';
@@ -90,10 +90,7 @@ class EnhancedChatBubble extends StatelessWidget {
           if (isUser && showAvatar) _buildUserAvatar(context),
         ],
       ),
-    )
-        .animate()
-        .slideY(begin: 0.3, duration: 300.ms, curve: Curves.easeOutCubic)
-        .fadeIn(duration: 300.ms);
+    );
   }
 
   Widget _buildAvatar(BuildContext context) {

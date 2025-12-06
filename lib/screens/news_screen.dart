@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../services/news_service.dart';
 import '../models/news_models.dart';
 import '../widgets/enhanced_news_card.dart';
@@ -69,6 +68,24 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
   Future<void> _loadNews({bool forceRefresh = false}) async {
     if (!forceRefresh) setState(() => _isLoading = true);
 
+    // 1. Load offline data first for immediate display
+    if (!forceRefresh) {
+      try {
+        final offlineResponse = await _newsService.getOfflineNews();
+        if (offlineResponse.articles.isNotEmpty && mounted) {
+          setState(() {
+            _articles = offlineResponse.articles;
+            _categories = offlineResponse.categories;
+            _metadata = offlineResponse.metadata;
+            _isLoading = false; // Show content while fetching fresh
+          });
+        }
+      } catch (e) {
+        print('Error loading offline news: $e');
+      }
+    }
+
+    // 2. Fetch fresh data
     try {
       final response = await _newsService.getContextualNews(
         profession: widget.profession,
@@ -77,20 +94,28 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
         forceRefresh: forceRefresh,
       );
 
-      setState(() {
-        _articles = response.articles;
-        _categories = response.categories;
-        _metadata = response.metadata;
-        _error = null;
-        _isLoading = false;
-        _isLoadingMore = false;
-      });
+      if (mounted) {
+        setState(() {
+          _articles = response.articles;
+          _categories = response.categories;
+          _metadata = response.metadata;
+          _error = null;
+          _isLoading = false;
+          _isLoadingMore = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-        _isLoadingMore = false;
-      });
+      if (mounted) {
+        // If we have data (from offline load), don't show full error screen, just snackbar maybe
+        // But for now, if _articles is empty, we show error.
+        setState(() {
+          if (_articles.isEmpty) {
+            _error = e.toString();
+          }
+          _isLoading = false;
+          _isLoadingMore = false;
+        });
+      }
     }
   }
 
@@ -180,7 +205,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
               child: NewsInsightsWidget(
                 metadata: _metadata!,
                 onViewAnalytics: _showAnalytics,
-              ).animate().slideY(begin: -0.2, duration: 400.ms),
+              ),
             ),
           ),
         ],
@@ -195,7 +220,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
               onCategorySelected: (category) {
                 setState(() => _selectedCategory = category);
               },
-            ).animate().slideX(begin: -0.2, duration: 500.ms),
+            ),
           ),
         ),
 
@@ -214,9 +239,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
                   article: article,
                   onTap: () => _showArticleDetails(article),
                   onActionTap: _handleNewsAction,
-                ).animate(delay: (index * 100).ms)
-                    .slideX(begin: 0.2, duration: 400.ms)
-                    .fadeIn();
+                );
               },
               childCount: _filteredArticles.length,
             ),
@@ -258,7 +281,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
           ),
         ],
       ),
-    ).animate().fadeIn();
+    );
   }
 
   Widget _buildErrorState() {
@@ -329,7 +352,7 @@ class _NewsScreenState extends State<NewsScreen> with TickerProviderStateMixin {
             ],
           ),
         ),
-      ).animate().fadeIn(),
+      ),
     );
   }
 
