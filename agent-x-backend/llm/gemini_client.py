@@ -60,16 +60,21 @@ class GeminiClient(BaseLLMClient):
             response = self.model.generate_content(
                 prompt,
                 generation_config=genai.GenerationConfig(
-                    temperature=0.1,  # Very low temperature for safer responses
-                    max_output_tokens=200,  # Shorter responses
+                    temperature=0.3,  # Increased slightly
+                    max_output_tokens=500,  # Increased
                     candidate_count=1,
                 )
             )
 
             # Better response extraction
-            if hasattr(response, 'text') and response.text:
-                return response.text.strip()
-            elif hasattr(response, 'candidates') and response.candidates:
+            try:
+                if hasattr(response, 'text') and response.text:
+                    return response.text.strip()
+            except Exception:
+                # Fallback if response.text fails (e.g. finish_reason is not STOP)
+                pass
+
+            if hasattr(response, 'candidates') and response.candidates:
                 for candidate in response.candidates:
                     if hasattr(candidate, 'content') and candidate.content.parts:
                         for part in candidate.content.parts:

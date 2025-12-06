@@ -1,0 +1,216 @@
+import 'package:flutter/material.dart';
+import '../services/briefing_service.dart';
+import '../services/voice_service.dart';
+
+class BriefingScreen extends StatefulWidget {
+  const BriefingScreen({super.key});
+
+  @override
+  State<BriefingScreen> createState() => _BriefingScreenState();
+}
+
+class _BriefingScreenState extends State<BriefingScreen> {
+  final BriefingService _briefingService = BriefingService();
+  final VoiceService _voiceService = VoiceService();
+  
+  bool _isLoading = true;
+  String? _summary;
+  Map<String, dynamic>? _data;
+  String? _error;
+  bool _isSpeaking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBriefing();
+    _voiceService.initialize();
+  }
+
+  @override
+  void dispose() {
+    _voiceService.stopSpeaking();
+    super.dispose();
+  }
+
+  Future<void> _loadBriefing({bool forceRefresh = false}) async {
+    try {
+      if (forceRefresh) {
+        setState(() => _isLoading = true);
+      }
+      
+      final data = await _briefingService.getBriefing(forceRefresh: forceRefresh);
+      if (mounted) {
+        setState(() {
+          _summary = data['summary'];
+          _data = data['data'];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleSpeech() async {
+    if (_summary == null) return;
+
+    if (_isSpeaking) {
+      await _voiceService.stopSpeaking();
+      setState(() => _isSpeaking = false);
+    } else {
+      setState(() => _isSpeaking = true);
+      await _voiceService.speak(_summary!);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Daily Briefing'),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _isLoading ? null : () => _loadBriefing(forceRefresh: true),
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Text('Error: $_error'))
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildHeader(),
+                      const SizedBox(height: 24),
+                      _buildSummaryCard(),
+                      const SizedBox(height: 24),
+                      _buildStatsRow(),
+                    ],
+                  ),
+                ),
+      floatingActionButton: !_isLoading && _error == null
+          ? FloatingActionButton.extended(
+              onPressed: _toggleSpeech,
+              icon: Icon(_isSpeaking ? Icons.stop : Icons.volume_up),
+              label: Text(_isSpeaking ? 'Stop' : 'Read Aloud'),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildHeader() {
+    final date = _data?['date'] ?? DateTime.now().toString().split(' ')[0];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Good Morning!',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Here is your briefing for $date',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                color: Colors.grey[600],
+              ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryCard() {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Text(
+          _summary ?? 'No summary available.',
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                height: 1.6,
+                fontSize: 16,
+              ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsRow() {
+    final eventsCount = _data?['events_count'] ?? 0;
+    final tasksCount = _data?['tasks_count'] ?? 0;
+
+    return Row(
+      children: [
+        Expanded(
+          child: _buildStatCard(
+            'Events',
+            eventsCount.toString(),
+            Icons.calendar_today,
+            Colors.blue,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: _buildStatCard(
+            'Priority Tasks',
+            tasksCount.toString(),
+            Icons.check_circle_outline,
+            Colors.orange,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

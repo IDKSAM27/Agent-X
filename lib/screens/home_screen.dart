@@ -17,6 +17,7 @@ import 'tasks_screen.dart';
 import 'news_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'profile_screen.dart';
+import 'briefing_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -399,6 +400,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         const SizedBox(height: AppConstants.spacingM),
+        DashboardCard(
+          title: 'Daily Briefing',
+          subtitle: 'Your morning summary',
+          icon: Icons.wb_sunny_rounded,
+          gradientColors: [
+            Colors.orange,
+            Colors.deepOrange,
+          ],
+          onTap: () => _navigateToBriefing(),
+        ),
+        const SizedBox(height: AppConstants.spacingM),
         Row(
           children: [
             Expanded(
@@ -593,6 +605,15 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => const ClockScreen(),
+      ),
+    );
+  }
+
+  void _navigateToBriefing() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const BriefingScreen(),
       ),
     );
   }
