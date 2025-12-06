@@ -23,6 +23,7 @@ class MemoryManager:
         self.conversations = self.chroma_client.get_or_create_collection("conversations")
         self.user_preferences = self.chroma_client.get_or_create_collection("user_preferences")
         self.agent_context = self.chroma_client.get_or_create_collection("agent_context")
+        self.notes = self.chroma_client.get_or_create_collection("notes")
 
     async def store_conversation(
             self,
@@ -138,26 +139,23 @@ class MemoryManager:
             except Exception as e:
                 print(f"Error storing user preferences: {e}")
 
-    async def get_user_context(self, user_id: str) -> Dict[str, Any]:
+    async def get_user_context(self, user_id: str, query: str = None) -> Dict[str, Any]:
         """Get comprehensive user context for agents"""
 
         # Get recent conversations
         recent_conversations = await self.search_conversations(
-            query="recent conversation context",
+            query="recent conversation context" if not query else query,
             user_id=user_id,
-            limit=10
+            limit=5
         )
+        
+        # Get relevant notes if query is provided
+        relevant_notes = []
+        if query:
+            relevant_notes = await self.search_notes(user_id, query, limit=3)
 
         # Get user preferences from PostgreSQL
         prefs = get_user_preferences(user_id)
-        
-        # We need profession too, which is stored in User model. 
-        # get_user_preferences returns the dict stored in preferences column.
-        # But we also need profession. 
-        # Let's check get_user_preferences implementation again.
-        # It returns json.loads(user.preferences). It doesn't return profession.
-        # I should update get_user_preferences to return profession as well or use get_user_profile_by_uuid.
-        # Wait, get_user_profile_by_uuid returns profession.
         
         from database.operations import get_user_profile_by_uuid
         profile = get_user_profile_by_uuid(user_id)
@@ -165,6 +163,7 @@ class MemoryManager:
         return {
             "user_id": user_id,
             "recent_conversations": recent_conversations,
+            "relevant_notes": relevant_notes,
             "preferences": prefs,
             "profession": profile.get("profession", "Unknown")
         }
@@ -184,6 +183,98 @@ class MemoryManager:
     async def get_agent_context(self, user_id: str, context_type: str = None) -> List[Dict[str, Any]]:
         """Get shared context from other agents"""
         return get_agent_context(user_id, context_type)
+
+    # --- Notes / Knowledge Base Methods ---
+
+    async def add_note(self, user_id: str, title: str, content: str, category: str = "general") -> str:
+        """Add a note to the knowledge base"""
+        note_id = f"note_{datetime.now().timestamp()}"
+        timestamp = datetime.now().isoformat()
+        
+        # Combine title and content for embedding
+        full_text = f"Title: {title}\nContent: {content}"
+        embedding = self.embedding_model.encode([full_text])[0].tolist()
+        
+        # We'll use the 'agent_context' collection for now or create a new one if we could
+        # But since we initialized collections in __init__, let's add 'notes' there first.
+        # Wait, I can't easily modify __init__ with this tool if I'm appending here.
+        # I should have modified __init__ first or use a separate tool call.
+        # Let's assume I'll modify __init__ in the next step or use a multi-replace.
+        # Actually, I can use get_or_create_collection here dynamically if I want, 
+        # but it's better practice to have it in __init__.
+        # For now, let's use a new collection 'notes' which I will add to __init__ in a separate call.
+        
+        self.notes.add(
+            documents=[full_text],
+            embeddings=[embedding],
+            metadatas=[{
+                "user_id": user_id,
+                "title": title,
+                "category": category,
+                "timestamp": timestamp,
+                "type": "note"
+            }],
+            ids=[note_id]
+        )
+        return note_id
+
+    async def get_notes(self, user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get all notes for a user"""
+        try:
+            # ChromaDB doesn't have a simple "get all" without IDs, so we query with a dummy embedding or metadata
+            # A workaround is to get by metadata
+            results = self.notes.get(
+                where={"user_id": user_id},
+                limit=limit
+            )
+            
+            notes = []
+            if results['ids']:
+                for i in range(len(results['ids'])):
+                    notes.append({
+                        "id": results['ids'][i],
+                        "content": results['documents'][i],
+                        "metadata": results['metadatas'][i]
+                    })
+            # Sort by timestamp desc
+            notes.sort(key=lambda x: x['metadata']['timestamp'], reverse=True)
+            return notes
+        except Exception as e:
+            print(f"Error getting notes: {e}")
+            return []
+
+    async def delete_note(self, user_id: str, note_id: str) -> bool:
+        """Delete a note"""
+        try:
+            # Verify ownership
+            result = self.notes.get(ids=[note_id], where={"user_id": user_id})
+            if not result['ids']:
+                return False
+                
+            self.notes.delete(ids=[note_id])
+            return True
+        except Exception as e:
+            print(f"Error deleting note: {e}")
+            return False
+
+    async def search_notes(self, user_id: str, query: str, limit: int = 3) -> List[str]:
+        """Search notes for RAG context"""
+        try:
+            query_embedding = self.embedding_model.encode([query])[0].tolist()
+            results = self.notes.query(
+                query_embeddings=[query_embedding],
+                n_results=limit,
+                where={"user_id": user_id}
+            )
+            
+            found_notes = []
+            if results['documents'] and results['documents'][0]:
+                found_notes = results['documents'][0]
+                
+            return found_notes
+        except Exception as e:
+            print(f"Error searching notes: {e}")
+            return []
 
 # Global memory manager instance
 memory_manager = MemoryManager()

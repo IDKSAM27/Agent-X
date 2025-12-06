@@ -32,6 +32,7 @@ from database.operations import (
     create_chat_session, get_user_chat_sessions, update_chat_session_title,
     delete_chat_session, get_chat_messages
 )
+from memory_manager import memory_manager
 from routes.news_router import router as news_router
 from services.news_scheduler import news_scheduler
 from services.smart_news_service import SmartNewsService
@@ -1115,6 +1116,51 @@ async def debug_user_profile(firebase_uid: str):
         }
     except Exception as e:
         return {"error": str(e)}
+
+# --- Notes Endpoints ---
+
+@app.post("/api/notes")
+async def create_note(request: dict, current_user: dict = Depends(get_current_user)):
+    """Create a new note"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        title = request.get("title", "Untitled Note")
+        content = request.get("content", "")
+        category = request.get("category", "general")
+        
+        if not content:
+            return {"status": "error", "message": "Content is required"}
+            
+        note_id = await memory_manager.add_note(firebase_uid, title, content, category)
+        return {"status": "success", "note_id": note_id}
+    except Exception as e:
+        logger.error(f"❌ Error creating note: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/notes")
+async def get_notes(current_user: dict = Depends(get_current_user)):
+    """Get all notes for the user"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        notes = await memory_manager.get_notes(firebase_uid)
+        return {"status": "success", "notes": notes}
+    except Exception as e:
+        logger.error(f"❌ Error getting notes: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.delete("/api/notes/{note_id}")
+async def delete_note(note_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a note"""
+    try:
+        firebase_uid = current_user["firebase_uid"]
+        success = await memory_manager.delete_note(firebase_uid, note_id)
+        if success:
+            return {"status": "success", "message": "Note deleted"}
+        else:
+            return {"status": "error", "message": "Note not found"}
+    except Exception as e:
+        logger.error(f"❌ Error deleting note: {e}")
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
