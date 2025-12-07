@@ -7,8 +7,8 @@ import '../core/config/api_config.dart';
 class BriefingService {
   final Dio _dio = Dio(BaseOptions(
     baseUrl: ApiConfig.baseUrl,
-    connectTimeout: const Duration(seconds: 60),
-    receiveTimeout: const Duration(seconds: 60),
+    connectTimeout: const Duration(seconds: 120),
+    receiveTimeout: const Duration(seconds: 120),
   ));
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -36,6 +36,7 @@ class BriefingService {
 
       final response = await _dio.get(
         '/api/briefing',
+        queryParameters: forceRefresh ? {'force_refresh': 'true'} : null,
         options: Options(headers: {'Authorization': 'Bearer $idToken'}),
       );
 

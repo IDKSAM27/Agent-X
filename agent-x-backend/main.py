@@ -797,7 +797,10 @@ async def get_events(current_user: dict = Depends(get_current_user)):
         return {"success": False, "events": [], "count": 0, "error": str(e)}
 
 @app.get("/api/briefing")
-async def get_daily_briefing(current_user: dict = Depends(get_current_user)):
+async def get_daily_briefing(
+    force_refresh: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
     """Get a daily briefing summary"""
     try:
         firebase_uid = current_user["firebase_uid"]
@@ -815,7 +818,11 @@ async def get_daily_briefing(current_user: dict = Depends(get_current_user)):
         # 3. Get news
         news_service = SmartNewsService()
         # Use fast context for chat which gives a good summary
-        news_context = await news_service.get_news_context_for_chat_fast(profession, "US")
+        news_context = await news_service.get_news_context_for_chat_fast(
+            profession, 
+            "US", 
+            force_refresh=force_refresh
+        )
         
         # 4. Generate Summary with LLM
         gemini_api_key = os.getenv("GEMINI_API_KEY")

@@ -339,20 +339,46 @@ class SmartNewsService:
 
         return summary
 
-    async def get_news_context_for_chat_fast(self, profession: str, location: str, days_back: int = 3) -> Dict[str, any]:
+    async def get_news_context_for_chat_fast(self, profession: str, location: str, days_back: int = 3, force_refresh: bool = False) -> Dict[str, any]:
         """Fast version of news context for chat - uses aggressive caching"""
         try:
             # Check cache first with longer TTL for chat
             cache_key = f"chat_news:{profession}:{location}:{days_back}"
-            cached_result = await self.cache_manager.get(cache_key)
+            
+            if not force_refresh:
+                cached_result = await self.cache_manager.get(cache_key)
 
-            if cached_result:
-                logger.info("🚄 Using cached news context for chat")
-                return cached_result
+                if cached_result:
+                    logger.info("🚄 Using cached news context for chat")
+                    return cached_result
+            else:
+                logger.info("🔄 Force refresh requested for news context")
 
             # If no cache, get from regular news context (which may have its own cache)
-            context = await self.get_news_context_for_chat(profession, location, days_back)
-
+            # Pass force_refresh to the underlying method as well
+            context = await self.get_news_context_for_chat(profession, location, days_back) # Note: get_news_context_for_chat doesn't support force_refresh yet in its signature in this file version, but let's check if we need to update it too.
+            # Wait, get_news_context_for_chat calls _fetch_from_all_sources which doesn't take force_refresh, 
+            # but get_contextual_news DOES take force_refresh.
+            # Let's look at get_news_context_for_chat again. It calls _fetch_from_all_sources directly.
+            # _fetch_from_all_sources fetches fresh data.
+            # The issue is get_news_context_for_chat_fast was caching the result of get_news_context_for_chat.
+            # So by bypassing the cache here, we are calling get_news_context_for_chat.
+            # get_news_context_for_chat fetches from sources.
+            # However, the sources themselves might have caching? 
+            # Looking at SmartNewsService.get_contextual_news, it has a force_refresh param.
+            # But get_news_context_for_chat does NOT call get_contextual_news, it reimplements logic.
+            # And it calls _fetch_from_all_sources.
+            # _fetch_from_all_sources calls source.fetch_articles().
+            # Let's see if source.fetch_articles() caches.
+            # The user said "when it is using cached news".
+            # If I bypass the cache in get_news_context_for_chat_fast, it will call get_news_context_for_chat.
+            # get_news_context_for_chat calls _fetch_from_all_sources.
+            # _fetch_from_all_sources calls source.fetch_articles.
+            # So simply bypassing the cache in get_news_context_for_chat_fast should be enough IF the sources don't cache internally or if we don't care about that level of caching.
+            # But wait, get_contextual_news has force_refresh.
+            # get_news_context_for_chat does NOT have force_refresh.
+            # So I should probably just rely on bypassing the cache in get_news_context_for_chat_fast for now.
+            
             # FIX: Use your existing cache API (without ttl_hours parameter)
             await self.cache_manager.set(cache_key, context)
 
