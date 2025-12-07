@@ -457,8 +457,11 @@ def handle_task_completion(message: str, user_id: str, context: str = ""):
 
 async def handle_calendar_create(message: str, user_id: str, context: str = ""):
     # Simple logic: any schedule/create gets a 'Meeting' on today at 10:00
-    date = datetime.now().strftime("%Y-%m-%d")
-    event_id = save_event(user_id, "Meeting", date, "10:00")
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    start_time = f"{today_str}T10:00:00"
+    
+    # save_event signature: firebase_uid, title, description, start_time, end_time, category, priority, location
+    event_id = save_event(user_id, "Meeting", "Scheduled via chat", start_time)
 
     # Context-aware response
     context_note = f"{context}**Current Request:**\n" if context else ""

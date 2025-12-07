@@ -153,19 +153,24 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       for (final e in data) {
         if (e['is_deleted'] == 1) continue; // Skip deleted events
         
-        final date = DateTime.parse(e['start_time']);
-        final normalized = DateTime(date.year, date.month, date.day);
-        final eventMap = {
-          'id': e['id'],
-          'title': e['title'],
-          'description': e['description'],
-          'time': _formatTimeFromDateTime(e['start_time']),
-          'type': e['category'] ?? 'general',
-          'color': _getCategoryColor(e['category'] ?? 'general'),
-          'isAllDay': e['is_all_day'] == 1,
-          'start_time': e['start_time'], // Keep original string for editing
-        };
-        _events[normalized] = (_events[normalized] ?? [])..add(eventMap);
+        try {
+          final date = DateTime.parse(e['start_time']);
+          final normalized = DateTime(date.year, date.month, date.day);
+          final eventMap = {
+            'id': e['id'],
+            'title': e['title'],
+            'description': e['description'],
+            'time': _formatTimeFromDateTime(e['start_time']),
+            'type': e['category'] ?? 'general',
+            'color': _getCategoryColor(e['category'] ?? 'general'),
+            'isAllDay': e['is_all_day'] == 1,
+            'start_time': e['start_time'], // Keep original string for editing
+          };
+          _events[normalized] = (_events[normalized] ?? [])..add(eventMap);
+        } catch (e) {
+          print('⚠️ Error parsing event date: $e');
+          continue;
+        }
       }
     });
   }
