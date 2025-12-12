@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'services/briefing_service.dart';
+import 'core/notifications/notification_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -28,6 +30,11 @@ void main() async {
 
   // Initialize agent orchestrator
   // await AgentOrchestrator().initialize();
+
+  // Initialize Notifications
+  final notificationService = NotificationService();
+  await notificationService.initialize();
+  await notificationService.requestPermissions();
 
   runApp(const AgentXApp());
 }

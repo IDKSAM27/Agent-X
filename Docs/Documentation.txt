@@ -80,4 +80,4 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ===========================================================================================================================
 
-flutter run -d V2059 --profile --dart-define=API_BASE_URL=http://192.168.1.7:8000
+flutter run -d V2059 --profile --dart-define=API_BASE_URL=http://192.168.1.4:8000

@@ -8,6 +8,9 @@ import 'dart:io';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../core/database/database_helper.dart';
+import '../services/auth_service.dart';
 import '../core/constants/app_constants.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -262,21 +265,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _signOut() async {
-    try {
-      await FirebaseAuth.instance.signOut();
-      if (mounted) {
-        // Navigate to root (which will show LoginScreen via AuthGate)
-        Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error signing out: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    setState(() {
+      _isLoading = true;
+    });
+    
+    // Use centralized AuthService
+    await AuthService().signOut(context);
+    
+    // Note: If signOut succeeds, it navigates away. 
+    // If it fails, execution continues here, so we might want to stop loading
+    if (mounted) {
+       setState(() {
+         _isLoading = false;
+       });
     }
   }
 
