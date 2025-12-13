@@ -1,6 +1,10 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'notification_config.dart';
 import 'notification_helper.dart';
 
@@ -67,11 +71,38 @@ class NotificationService {
             AndroidFlutterLocalNotificationsPlugin>();
 
     if (androidImplementation != null) {
+      // 1. Notification Permission
       final bool? granted = await androidImplementation.requestNotificationsPermission();
       debugPrint('Notification Permission Granted: $granted');
-      
-      // Request exact alarms permission (Android 12+)
+
+      // 2. Exact Alarm Permission (Android 12+)
       await androidImplementation.requestExactAlarmsPermission();
+      
+      // 3. Check Exact Notification Policy (Critical for Android 14+)
+      // Note: canScheduleExactNotifications is not available in all versions of the plugin, 
+      // but if available we should log it. If not, catching error.
+      try {
+         // Some versions might not expose this or it might be async? 
+         // Actually commonly used logic:
+         final bool? canSchedule = await androidImplementation.canScheduleExactNotifications();
+         debugPrint('Can schedule exact notifications: $canSchedule');
+         
+         if (canSchedule == false) {
+             debugPrint("WARNING: Exact notifications NOT allowed. Scheduled tasks may fail.");
+         }
+      } catch (e) {
+          debugPrint('Error checking exact schedule capability: $e');
+      }
+
+      // 4. Battery Optimization (Crucial for Vivo/Samsung/Xiaomi)
+      final status = await Permission.ignoreBatteryOptimizations.status;
+      debugPrint('Ignore Battery Optimizations Status: $status');
+      
+      if (!status.isGranted) {
+        debugPrint('Requesting Ignore Battery Optimizations...');
+        // This usually opens a dialog or settings page
+        await Permission.ignoreBatteryOptimizations.request();
+      }
     }
   }
 
@@ -110,6 +141,7 @@ class NotificationService {
                 channelDescription: NotificationConfig.scheduledChannelDescription,
                 importance: Importance.high,
                 priority: Priority.high,
+                fullScreenIntent: true, // Wake up screen
             ),
             ),
             androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -140,6 +172,7 @@ class NotificationService {
                   channelDescription: NotificationConfig.scheduledChannelDescription,
                   importance: Importance.high,
                   priority: Priority.high,
+                  fullScreenIntent: true, // Wake up screen
               ),
               ),
               androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
@@ -168,6 +201,7 @@ class NotificationService {
                     channelDescription: NotificationConfig.scheduledChannelDescription,
                     importance: Importance.high,
                     priority: Priority.high,
+                    fullScreenIntent: true, // Wake up screen
                 ),
               ),
             );
@@ -178,6 +212,68 @@ class NotificationService {
     } else {
         debugPrint('Skipping pre-event notification as event has already started/passed');
     }
+  }
+
+  Future<void> showImmediateBriefingNotification(String title, String body) async {
+      await _flutterLocalNotificationsPlugin.show(
+      888, // Same ID as scheduled
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          NotificationConfig.scheduledChannelId,
+          NotificationConfig.scheduledChannelName,
+          channelDescription: NotificationConfig.scheduledChannelDescription,
+          importance: Importance.max,
+          priority: Priority.high,
+          fullScreenIntent: true, // Try to wake screen
+        ),
+      ),
+      payload: 'daily_briefing',
+    );
+  }
+  
+  Future<void> scheduleDailyBriefingNotification(TimeOfDay time) async {
+    final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
+    
+    // Create target time for today
+    tz.TZDateTime scheduledDate = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      time.hour,
+      time.minute,
+    );
+
+    // If passed, schedule for tomorrow
+    if (scheduledDate.isBefore(now)) {
+      scheduledDate = scheduledDate.add(const Duration(days: 1));
+    }
+
+    // Schedule daily
+    await _flutterLocalNotificationsPlugin.zonedSchedule(
+      888, // Fixed ID for daily briefing
+      'Daily Briefing Ready',
+      'Your daily briefing is ready for you.',
+      scheduledDate,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          NotificationConfig.scheduledChannelId,
+          NotificationConfig.scheduledChannelName,
+          channelDescription: NotificationConfig.scheduledChannelDescription,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time, // Repeats daily at this time
+      payload: 'daily_briefing', // Use for navigation
+    );
+    
+    debugPrint("Scheduled daily briefing notification for ${time.hour}:${time.minute} (Next: $scheduledDate)");
   }
   
   Future<void> cancelEventNotifications(int id) async {

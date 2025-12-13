@@ -7,8 +7,8 @@ import '../core/config/api_config.dart';
 class BriefingService {
   final Dio _dio = Dio(BaseOptions(
     baseUrl: ApiConfig.baseUrl,
-    connectTimeout: const Duration(seconds: 120),
-    receiveTimeout: const Duration(seconds: 120),
+    connectTimeout: const Duration(seconds: 180),
+    receiveTimeout: const Duration(seconds: 180),
   ));
   final FirebaseAuth _auth = FirebaseAuth.instance;
 

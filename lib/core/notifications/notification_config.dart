@@ -5,8 +5,8 @@ class NotificationConfig {
   static const String channelName = 'Agent X High Importance';
   static const String channelDescription = 'This channel is used for important notifications.';
   
-  static const String scheduledChannelId = 'agent_x_scheduled_channel';
-  static const String scheduledChannelName = 'Scheduled Events';
+  static const String scheduledChannelId = 'scheduled_channel_v2';
+  static const String scheduledChannelName = 'Scheduled Notifications V2';
   static const String scheduledChannelDescription = 'Notifications for scheduled events.';
 
   static const AndroidNotificationChannel highImportanceChannel = AndroidNotificationChannel(

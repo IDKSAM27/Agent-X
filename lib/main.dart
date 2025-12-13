@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'services/briefing_service.dart';
+import 'services/background_service.dart';
 import 'core/notifications/notification_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -35,6 +36,9 @@ void main() async {
   final notificationService = NotificationService();
   await notificationService.initialize();
   await notificationService.requestPermissions();
+  
+  // Initialize Background Service (WorkManager)
+  await BackgroundService().initialize();
 
   runApp(const AgentXApp());
 }
