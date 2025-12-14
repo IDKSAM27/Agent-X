@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../services/briefing_service.dart';
 import '../services/voice_service.dart';
+import '../services/background_service.dart';
+import '../core/notifications/notification_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class BriefingScreen extends StatefulWidget {
   const BriefingScreen({super.key});
@@ -68,6 +71,54 @@ class _BriefingScreenState extends State<BriefingScreen> {
     }
   }
 
+  Future<void> _showNotificationScheduler() async {
+    // Ensure permissions are granted before scheduling
+    await NotificationService().requestPermissions();
+
+    final TimeOfDay? selectedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(), // ...
+      builder: (context, child) {
+         return Theme(
+          data: Theme.of(context).copyWith(
+            timePickerTheme: TimePickerThemeData(
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              hourMinuteTextColor: Theme.of(context).colorScheme.onSurface,
+              dayPeriodTextColor: Theme.of(context).colorScheme.onSurface,
+              dialHandColor: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (selectedTime != null) {
+      // 1. Save Preference
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('briefing_hour', selectedTime.hour);
+      await prefs.setInt('briefing_minute', selectedTime.minute);
+
+      // 2. Schedule Notification - DISABLED (Using WorkManager trigger for reliability)
+      // await NotificationService().scheduleDailyBriefingNotification(selectedTime);
+
+      // 3. Schedule WorkManager (Targeting the exact time now)
+      // We schedule it for the EXACT time the user wants. 
+      // WorkManager might delay it slightly, but it will run.
+      await BackgroundService().scheduleBriefingFetch(notificationTime: selectedTime);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Daily briefing scheduled for ${selectedTime.format(context)}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -75,6 +126,10 @@ class _BriefingScreenState extends State<BriefingScreen> {
         title: const Text('Daily Briefing'),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.access_time),
+            onPressed: _showNotificationScheduler,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _isLoading ? null : () => _loadBriefing(forceRefresh: true),

@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../core/config/api_config.dart';
 import '../core/database/database_helper.dart';
+import '../core/notifications/notification_service.dart';
 import '../services/sync_service.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:async';
@@ -682,23 +683,13 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
     // Reset state for new event creation
     _resetEventFormState();
 
-    // If editing an existing event, populate the form fields
-    if (existingEvent != null) {
-      _eventTitleController = TextEditingController(text: existingEvent['title'] ?? '');
-      _eventSelectedTime = _parseTimeString(existingEvent['time']);
-      _eventSelectedCategory = existingEvent['type'] ?? 'general';
-      _eventIsAllDay = existingEvent['isAllDay'] ?? false;
-    } else {
-      _eventTitleController = TextEditingController();
-    }
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       enableDrag: true,
       isDismissible: true,
-      builder: (context) => _buildCreateEventBottomSheet(),
+      builder: (context) => _buildCreateEventBottomSheet(existingEvent: existingEvent),
     );
   }
 
@@ -1180,6 +1171,22 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       'last_updated': DateTime.now().toIso8601String(),
     });
     
+    // Schedule Notification
+    try {
+      // Use a consistent ID generation strategy for notifications. 
+      int notificationId = _getNotificationId(eventId);
+      
+      await NotificationService().scheduleEventNotifications(
+        id: notificationId,
+        title: title,
+        body: "Don't forget your $category event!",
+        eventDate: _normalizeDate(startTime),
+        startTime: startTime,
+      );
+    } catch (e) {
+      print('⚠️ Error scheduling notification: $e');
+    }
+    
     await _loadEventsFromLocal();
 
     if (!_isOnline) {
@@ -1287,14 +1294,9 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
   void _handleEventAction(String action, Map<String, dynamic> event) {
     switch (action) {
       case 'edit':
-      // DON'T reset state for editing - preserve existing data
-        showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          enableDrag: true,
-          builder: (context) => _buildCreateEventBottomSheet(existingEvent: event),
-        );
+      case 'edit':
+        _showCreateEventDialog(existingEvent: event);
+        break;
         break;
       case 'delete':
         _deleteEvent(event);
@@ -1404,7 +1406,8 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
     final eventId = event['id'].toString();
     
     // Optimistic delete from local
-    await _dbHelper.update('events', {'is_deleted': 1, 'is_synced': _isOnline ? 1 : 0}, 'id'); // Soft delete
+    // Optimistic delete from local
+    await _dbHelper.update('events', {'id': eventId, 'is_deleted': 1, 'is_synced': _isOnline ? 1 : 0}, 'id'); // Soft delete
     // Or hard delete: await _dbHelper.delete('events', eventId);
     
     await _loadEventsFromLocal();
@@ -1413,6 +1416,14 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
       await _dbHelper.addToSyncQueue('event', 'delete', eventId, '{}');
       return;
     }
+    
+    // Cancel Notification
+    try {
+      await NotificationService().cancelEventNotifications(_getNotificationId(eventId));
+    } catch (e) {
+      print('⚠️ Error cancelling notification: $e');
+    }
+
 
     try {
       final token = await _getFirebaseToken();
@@ -1514,5 +1525,10 @@ class _CalendarScreenState extends State<CalendarScreen> with TickerProviderStat
     _eventSelectedTime = null;
     _eventSelectedCategory = null;
     _eventIsAllDay = null;
+  }
+
+  int _getNotificationId(String id) {
+    // Ensure the ID fits within a 32-bit signed integer (positive)
+    return id.hashCode & 0x7FFFFFFF;
   }
 }

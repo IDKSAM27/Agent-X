@@ -18,6 +18,7 @@ import 'news_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'profile_screen.dart';
 import 'briefing_screen.dart';
+import '../services/auth_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -728,9 +729,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _signOut() async {
-    await FirebaseAuth.instance.signOut();
-    if (mounted) {
-      Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
-    }
+    await AuthService().signOut(context);
   }
 }
