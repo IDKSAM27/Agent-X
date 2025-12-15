@@ -832,22 +832,43 @@ async def get_daily_briefing(
         if not gemini_api_key:
             return {"status": "error", "message": "LLM not configured"}
             
+        # Determine greeting
+        current_hour = datetime.now().hour
+        if 5 <= current_hour < 12:
+            greeting = "Good morning"
+        elif 12 <= current_hour < 17:
+            greeting = "Good afternoon"
+        elif 17 <= current_hour < 22:
+            greeting = "Good evening"
+        else:
+            greeting = "Hello"
+
         llm_service = LLMService(gemini_api_key)
         
         prompt = f"""
-        Generate a friendly, energetic morning briefing for a {profession}.
-        
-        User's Schedule for Today ({today_str}):
+        You are Agent X, an intelligent personal assistant for a {profession}.
+        Current Date: {today_str}
+        Current Time: {datetime.now().strftime("%H:%M")}
+
+        Your goal is to generate a high-quality, actionable daily briefing. Do not just list items; analyze them.
+
+        USER'S SCHEDULE FOR TODAY:
         {todays_events if todays_events else "No events scheduled."}
-        
-        Top Priority Tasks:
+
+        TOP PRIORITY TASKS:
         {priority_tasks if priority_tasks else "No high priority tasks."}
-        
-        News Headlines:
+
+        RELEVANT NEWS CONTEXT:
         {news_context}
-        
-        Format the response as a spoken paragraph. Start with "Good morning!". 
-        Keep it under 150 words. Focus on the most important items.
+
+        INSTRUCTIONS:
+        1. Synthesize the information. If a news item correlates with a task or event (e.g., industry news relevant to a meeting), explicitly make that connection.
+        2. Prioritize what's truly important. If the schedule is empty, focus on deep work or news insights.
+        3. Be professional yet conversational and energetic.
+        4. Start with "{greeting}!".
+        5. Provide a clear outlook for the day (or evening/tomorrow if it's late).
+
+        Format the response as a cohesive spoken paragraph suitable for reading aloud. Avoid robotic listing.
         """
         
         # We use a direct generation here instead of the full agent process
@@ -859,7 +880,7 @@ async def get_daily_briefing(
         # Use simple_chat method which is available in GeminiClient
         from llm.gemini_client import GeminiClient
         client = GeminiClient(gemini_api_key)
-        response_text = await client.simple_chat(prompt)
+        response_text = await client.simple_chat(prompt, max_tokens=1000)
         
         return {
             "status": "success",

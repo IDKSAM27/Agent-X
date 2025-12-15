@@ -47,7 +47,7 @@ class GeminiClient(BaseLLMClient):
             logger.error(f"❌ Gemini API error: {e}")
             raise Exception(f"Gemini API failed: {str(e)}")
 
-    async def simple_chat(self, message: str, context: str = "") -> str:
+    async def simple_chat(self, message: str, context: str = "", max_tokens: int = 1000) -> str:
         """Simple chat without function calling"""
         try:
             # Safer prompt construction - avoid potential safety triggers
@@ -60,8 +60,8 @@ class GeminiClient(BaseLLMClient):
             response = self.model.generate_content(
                 prompt,
                 generation_config=genai.GenerationConfig(
-                    temperature=0.3,  # Increased slightly
-                    max_output_tokens=500,  # Increased
+                    temperature=0.4,  # Increased slightly for better creativity
+                    max_output_tokens=max_tokens,  # Use provided max_tokens
                     candidate_count=1,
                 )
             )
