@@ -809,6 +809,11 @@ async def get_daily_briefing(
         firebase_uid = current_user["firebase_uid"]
         profession = current_user.get("profession", "Professional")
         
+        # --- CONFIGURATION ---
+        # Change this value to control the maximum number of words in the briefing
+        target_word_limit = 150 
+        # ---------------------
+        
         # 1. Get today's events
         events = get_all_events(firebase_uid)
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -818,36 +823,72 @@ async def get_daily_briefing(
         tasks = get_user_tasks(firebase_uid, status="pending")
         priority_tasks = [t for t in tasks if t[3] == "high"]
         
-        # 3. Get news
+        # 3. Get news (Restricted limit)
         news_service = SmartNewsService()
-        # Use fast context for chat which gives a good summary
-        news_context = await news_service.get_news_context_for_chat_fast(
+        news_data = await news_service.get_news_context_for_chat_fast(
             profession, 
             "US", 
-            force_refresh=force_refresh
+            force_refresh=force_refresh,
+            limit=40
         )
+        
+        # Manually extract only top 2 headlines for conciseness
+        filtered_news = []
+        if news_data.get('urgent_items'):
+            filtered_news.extend(news_data['urgent_items'][:2])
+        
+        if len(filtered_news) < 2 and news_data.get('categories'):
+            for cat, items in news_data['categories'].items():
+                for item in items:
+                    if len(filtered_news) >= 2: break
+                    filtered_news.append(item['title'])
+                if len(filtered_news) >= 2: break
+                
+        logger.info(f"Filtered News for Briefing: {filtered_news}")
+        news_context = "\n".join([f"- {item}" for item in filtered_news])
         
         # 4. Generate Summary with LLM
         gemini_api_key = os.getenv("GEMINI_API_KEY")
         if not gemini_api_key:
             return {"status": "error", "message": "LLM not configured"}
             
+        # Determine greeting
+        current_hour = datetime.now().hour
+        if 5 <= current_hour < 12:
+            greeting = "Good morning"
+        elif 12 <= current_hour < 17:
+            greeting = "Good afternoon"
+        elif 17 <= current_hour < 22:
+            greeting = "Good evening"
+        else:
+            greeting = "Hello"
+
         llm_service = LLMService(gemini_api_key)
         
         prompt = f"""
-        Generate a friendly, energetic morning briefing for a {profession}.
-        
-        User's Schedule for Today ({today_str}):
+        You are Agent X, an intelligent personal assistant for a {profession}.
+        Current Date: {today_str}
+        Current Time: {datetime.now().strftime("%H:%M")}
+
+        Your goal is to generate a high-quality, actionable daily briefing. Do not just list items; analyze them.
+
+        USER'S SCHEDULE FOR TODAY:
         {todays_events if todays_events else "No events scheduled."}
-        
-        Top Priority Tasks:
+
+        TOP PRIORITY TASKS:
         {priority_tasks if priority_tasks else "No high priority tasks."}
-        
-        News Headlines:
+
+        RELEVANT NEWS CONTEXT:
         {news_context}
-        
-        Format the response as a spoken paragraph. Start with "Good morning!". 
-        Keep it under 150 words. Focus on the most important items.
+
+        INSTRUCTIONS:
+        1. Be extremely concise. Maximum {target_word_limit} words.
+        2. Briefly summarize the provided 2 news headlines.
+        3. Determine the single most important thing for the user to do/know today.
+        4. Start with "{greeting}!".
+        5. Tone: Efficient, direct, executive summary. No fluff.
+
+        Format: A single, punchy paragraph.
         """
         
         # We use a direct generation here instead of the full agent process
@@ -859,7 +900,7 @@ async def get_daily_briefing(
         # Use simple_chat method which is available in GeminiClient
         from llm.gemini_client import GeminiClient
         client = GeminiClient(gemini_api_key)
-        response_text = await client.simple_chat(prompt)
+        response_text = await client.simple_chat(prompt, max_tokens=2000)
         
         return {
             "status": "success",

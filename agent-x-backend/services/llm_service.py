@@ -1,4 +1,5 @@
 from typing import Dict, List, Any
+import datetime
 import logging
 from llm.base import BaseLLMClient
 from llm.gemini_client import GeminiClient
@@ -129,7 +130,9 @@ class LLMService:
 
     def _build_system_prompt(self, profession: str, context: str) -> str:
         """Build system prompt with user context"""
+        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
         base_prompt = f"""You are Agent X, an AI assistant specifically designed to help {profession}s.
+Current Date: {current_date}
 
 Available functions:
 - save_user_info: Save user's name and information  

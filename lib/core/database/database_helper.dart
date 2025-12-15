@@ -182,18 +182,23 @@ class DatabaseHelper {
 
   Future<int> update(String table, Map<String, dynamic> row, String columnId) async {
     final db = await database;
-    String id = row[columnId];
+    dynamic id = row[columnId];
     
     // Ensure we update metadata
     final Map<String, dynamic> data = Map.from(row);
-    if (!data.containsKey('last_updated')) {
-      data['last_updated'] = DateTime.now().toIso8601String();
-    }
-    // If we are updating locally, we usually want to mark as unsynced (0)
-    // But sometimes we might be updating FROM sync (is_synced=1)
-    // So we respect the passed value if present, otherwise default to 0 (unsynced)
-    if (!data.containsKey('is_synced')) {
-      data['is_synced'] = 0;
+    
+    // Check if table supports metadata columns
+    // chat_sessions table does not have last_updated or is_synced in current schema (v3)
+    if (table != 'chat_sessions') {
+      if (!data.containsKey('last_updated')) {
+        data['last_updated'] = DateTime.now().toIso8601String();
+      }
+      // If we are updating locally, we usually want to mark as unsynced (0)
+      // But sometimes we might be updating FROM sync (is_synced=1)
+      // So we respect the passed value if present, otherwise default to 0 (unsynced)
+      if (!data.containsKey('is_synced')) {
+        data['is_synced'] = 0;
+      }
     }
 
     return await db.update(table, data, where: '$columnId = ?', whereArgs: [id]);
