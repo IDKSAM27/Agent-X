@@ -809,6 +809,11 @@ async def get_daily_briefing(
         firebase_uid = current_user["firebase_uid"]
         profession = current_user.get("profession", "Professional")
         
+        # --- CONFIGURATION ---
+        # Change this value to control the maximum number of words in the briefing
+        target_word_limit = 150 
+        # ---------------------
+        
         # 1. Get today's events
         events = get_all_events(firebase_uid)
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -818,14 +823,28 @@ async def get_daily_briefing(
         tasks = get_user_tasks(firebase_uid, status="pending")
         priority_tasks = [t for t in tasks if t[3] == "high"]
         
-        # 3. Get news
+        # 3. Get news (Restricted limit)
         news_service = SmartNewsService()
-        # Use fast context for chat which gives a good summary
-        news_context = await news_service.get_news_context_for_chat_fast(
+        news_data = await news_service.get_news_context_for_chat_fast(
             profession, 
             "US", 
             force_refresh=force_refresh
         )
+        
+        # Manually extract only top 2 headlines for conciseness
+        filtered_news = []
+        if news_data.get('urgent_items'):
+            filtered_news.extend(news_data['urgent_items'][:2])
+        
+        if len(filtered_news) < 2 and news_data.get('categories'):
+            for cat, items in news_data['categories'].items():
+                for item in items:
+                    if len(filtered_news) >= 2: break
+                    filtered_news.append(item['title'])
+                if len(filtered_news) >= 2: break
+                
+        logger.info(f"Filtered News for Briefing: {filtered_news}")
+        news_context = "\n".join([f"- {item}" for item in filtered_news])
         
         # 4. Generate Summary with LLM
         gemini_api_key = os.getenv("GEMINI_API_KEY")
@@ -862,13 +881,13 @@ async def get_daily_briefing(
         {news_context}
 
         INSTRUCTIONS:
-        1. Synthesize the information. If a news item correlates with a task or event (e.g., industry news relevant to a meeting), explicitly make that connection.
-        2. Prioritize what's truly important. If the schedule is empty, focus on deep work or news insights.
-        3. Be professional yet conversational and energetic.
+        1. Be extremely concise. Maximum {target_word_limit} words.
+        2. Briefly summarize the provided 2 news headlines.
+        3. Determine the single most important thing for the user to do/know today.
         4. Start with "{greeting}!".
-        5. Provide a clear outlook for the day (or evening/tomorrow if it's late).
+        5. Tone: Efficient, direct, executive summary. No fluff.
 
-        Format the response as a cohesive spoken paragraph suitable for reading aloud. Avoid robotic listing.
+        Format: A single, punchy paragraph.
         """
         
         # We use a direct generation here instead of the full agent process
