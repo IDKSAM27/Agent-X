@@ -244,7 +244,7 @@ class SmartNewsService:
             }
         }
 
-    async def get_news_context_for_chat(self, profession: str, location: str, days_back: int = 3) -> Dict[str, any]:
+    async def get_news_context_for_chat(self, profession: str, location: str, days_back: int = 3, limit: int = 100) -> Dict[str, any]:
         """Get recent news context for chat system"""
         try:
             # Get recent high-relevance articles
@@ -257,6 +257,14 @@ class SmartNewsService:
             )
 
             raw_articles = await self._fetch_from_all_sources(user_profile)
+            
+            # Optimization: Slice raw articles before processing to save resources
+            # We fetch more than limit initially (e.g. 2x) to account for filtering, but cap it to avoid processing 100+
+            processing_cap = max(limit * 2, 50) 
+            if len(raw_articles) > processing_cap:
+                logger.info(f"✂️ Slicing raw articles from {len(raw_articles)} to {processing_cap} for optimization")
+                raw_articles = raw_articles[:processing_cap]
+
             processed_articles = await self.content_processor.process_articles(raw_articles, user_profile)
 
             # Filter for high-relevance articles from last few days
@@ -339,7 +347,7 @@ class SmartNewsService:
 
         return summary
 
-    async def get_news_context_for_chat_fast(self, profession: str, location: str, days_back: int = 3, force_refresh: bool = False) -> Dict[str, any]:
+    async def get_news_context_for_chat_fast(self, profession: str, location: str, days_back: int = 3, force_refresh: bool = False, limit: int = 40) -> Dict[str, any]:
         """Fast version of news context for chat - uses aggressive caching"""
         try:
             # Check cache first with longer TTL for chat
@@ -356,7 +364,7 @@ class SmartNewsService:
 
             # If no cache, get from regular news context (which may have its own cache)
             # Pass force_refresh to the underlying method as well
-            context = await self.get_news_context_for_chat(profession, location, days_back) # Note: get_news_context_for_chat doesn't support force_refresh yet in its signature in this file version, but let's check if we need to update it too.
+            context = await self.get_news_context_for_chat(profession, location, days_back, limit=limit) 
             # Wait, get_news_context_for_chat calls _fetch_from_all_sources which doesn't take force_refresh, 
             # but get_contextual_news DOES take force_refresh.
             # Let's look at get_news_context_for_chat again. It calls _fetch_from_all_sources directly.

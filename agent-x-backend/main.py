@@ -828,7 +828,8 @@ async def get_daily_briefing(
         news_data = await news_service.get_news_context_for_chat_fast(
             profession, 
             "US", 
-            force_refresh=force_refresh
+            force_refresh=force_refresh,
+            limit=40
         )
         
         # Manually extract only top 2 headlines for conciseness
