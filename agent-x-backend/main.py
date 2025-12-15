@@ -880,7 +880,7 @@ async def get_daily_briefing(
         # Use simple_chat method which is available in GeminiClient
         from llm.gemini_client import GeminiClient
         client = GeminiClient(gemini_api_key)
-        response_text = await client.simple_chat(prompt, max_tokens=1000)
+        response_text = await client.simple_chat(prompt, max_tokens=2000)
         
         return {
             "status": "success",
