@@ -18,6 +18,7 @@ import 'news_screen.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'profile_screen.dart';
 import 'briefing_screen.dart';
+import '../features/scheduler/screens/scheduler_home_screen.dart';
 import '../services/auth_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -401,15 +402,34 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         const SizedBox(height: AppConstants.spacingM),
-        DashboardCard(
-          title: 'Daily Briefing',
-          subtitle: 'Your morning summary',
-          icon: Icons.wb_sunny_rounded,
-          gradientColors: [
-            Colors.orange,
-            Colors.deepOrange,
+        Row(
+          children: [
+            Expanded(
+              child: DashboardCard(
+                title: 'Daily Briefing',
+                subtitle: 'Your morning summary',
+                icon: Icons.wb_sunny_rounded,
+                gradientColors: [
+                  Colors.orange,
+                  Colors.deepOrange,
+                ],
+                onTap: () => _navigateToBriefing(),
+              ),
+            ),
+            const SizedBox(width: AppConstants.spacingM),
+            Expanded(
+              child: DashboardCard(
+                title: 'Scheduler',
+                subtitle: 'Manage timetables',
+                icon: Icons.calendar_month_outlined,
+                gradientColors: [
+                  Colors.blue.shade400,
+                  Colors.blue.shade700,
+                ],
+                onTap: () => _navigateToScheduler(),
+              ),
+            ),
           ],
-          onTap: () => _navigateToBriefing(),
         ),
         const SizedBox(height: AppConstants.spacingM),
         Row(
@@ -615,6 +635,15 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => const BriefingScreen(),
+      ),
+    );
+  }
+
+  void _navigateToScheduler() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SchedulerHomeScreen(),
       ),
     );
   }
