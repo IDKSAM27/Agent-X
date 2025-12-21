@@ -15,7 +15,7 @@ class GeminiClient(BaseLLMClient):
             "gemini-2.5-flash",
             generation_config=genai.GenerationConfig(
                 temperature=0.3,  # Lower temperature = faster
-                max_output_tokens=500,  # Fewer tokens = faster
+                max_output_tokens=2048,  # Increased for larger responses (JSON)
                 candidate_count=1,  # Single candidate = faster
             )
         )
@@ -46,6 +46,26 @@ class GeminiClient(BaseLLMClient):
         except Exception as e:
             logger.error(f"❌ Gemini API error: {e}")
             raise Exception(f"Gemini API failed: {str(e)}")
+
+    async def generate_content_with_media(self, prompt: str, media_data: bytes, mime_type: str) -> str:
+        """Generate content from prompt and media (image/pdf)"""
+        try:
+            # Create a cookie dictionary from the byte data
+            # For Gemini API, we can pass a dict with 'mime_type' and 'data'
+            cookie_picture = {
+                'mime_type': mime_type,
+                'data': media_data
+            }
+            
+            response = self.model.generate_content([prompt, cookie_picture])
+            
+            if hasattr(response, 'text') and response.text:
+                return response.text
+            return "Could not extract text from image."
+            
+        except Exception as e:
+            logger.error(f"❌ Gemini Vision API error: {e}")
+            raise Exception(f"Gemini Vision API failed: {str(e)}")
 
     async def simple_chat(self, message: str, context: str = "", max_tokens: int = 1000) -> str:
         """Simple chat without function calling"""
@@ -231,6 +251,15 @@ class GeminiClient(BaseLLMClient):
                 function_calls=[],
                 metadata={"error": str(e), "model": "gemini-2.5-flash", "provider": "google"}
             )
+
+    async def simple_chat(self, prompt: str) -> str:
+        """Simple chat generation without function calling"""
+        try:
+            response = self.model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            logger.error(f"❌ Gemini simple chat error: {e}")
+            raise Exception(f"Gemini API failed: {str(e)}")
 
     async def get_enhanced_response_with_news_context(
             self,
