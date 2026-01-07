@@ -252,14 +252,7 @@ class GeminiClient(BaseLLMClient):
                 metadata={"error": str(e), "model": "gemini-2.5-flash", "provider": "google"}
             )
 
-    async def simple_chat(self, prompt: str) -> str:
-        """Simple chat generation without function calling"""
-        try:
-            response = self.model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            logger.error(f"❌ Gemini simple chat error: {e}")
-            raise Exception(f"Gemini API failed: {str(e)}")
+
 
     async def get_enhanced_response_with_news_context(
             self,
