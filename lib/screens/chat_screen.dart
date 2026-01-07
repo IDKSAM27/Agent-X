@@ -665,117 +665,9 @@ class _ChatScreenState extends State<ChatScreen> {
     ) ?? false;
   }
 
-  void _showExportDialog(Map<String, dynamic> data) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Chat Export'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Total Messages: ${data['total_messages']}'),
-              const SizedBox(height: 8),
-              const Text('Preview:', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  jsonEncode(data['conversations'].take(2).toList()),
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 10, color: Colors.black87),
-                  maxLines: 10,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              // In a real app, this would save to file or share
-              Navigator.pop(context);
-              _showSuccessSnackBar('Export saved to Downloads (simulated)');
-            },
-            icon: const Icon(Icons.download),
-            label: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-
   // --- Memory & Options ---
 
-  Future<void> _showMemoryStatus() async {
-    try {
-      final idToken = await _getFirebaseIdToken();
-      if (idToken == null) return;
 
-      final response = await dio.get(
-        '/debug/data_status/${_auth.currentUser!.uid}',
-        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
-      );
-
-      if (mounted && response.statusCode == 200) {
-        final data = response.data;
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Memory Status'),
-            content: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildInfoRow('Total Conversations', '${data['conversations_count']}'),
-                  _buildInfoRow('Total Tasks', '${data['tasks_count']}'),
-                  _buildInfoRow('Total Events', '${data['events_count']}'),
-                  const SizedBox(height: 16),
-                  const Text('Recent Activity:', style: TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  Text(
-                    jsonEncode(data['recent_activity']),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-            ],
-          ),
-        );
-      }
-    } catch (e) {
-      _showErrorMessage('Failed to fetch memory status');
-    }
-  }
 
   Future<void> _clearMemory() async {
     final confirmed = await _showConfirmDialog(
@@ -814,24 +706,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  Future<void> _exportChat() async {
-    try {
-      final idToken = await _getFirebaseIdToken();
-      if (idToken == null) return;
 
-      final response = await dio.post(
-        '/api/export_chat',
-        options: Options(headers: {'Authorization': 'Bearer $idToken'}),
-      );
-
-      if (mounted && response.statusCode == 200) {
-        final data = response.data['data'];
-        _showExportDialog(data);
-      }
-    } catch (e) {
-      _showErrorMessage('Failed to export chat');
-    }
-  }
 
   Future<void> _clearCurrentChat() async {
     if (_currentSessionId == null) return;
@@ -905,12 +780,6 @@ class _ChatScreenState extends State<ChatScreen> {
         PopupMenuButton<String>(
           onSelected: (value) {
             switch (value) {
-              case 'memory':
-                _showMemoryStatus();
-                break;
-              case 'export':
-                _exportChat();
-                break;
               case 'clear_chat':
                 _clearCurrentChat();
                 break;
@@ -920,27 +789,6 @@ class _ChatScreenState extends State<ChatScreen> {
             }
           },
           itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-            const PopupMenuItem<String>(
-              value: 'memory',
-              child: Row(
-                children: [
-                  Icon(Icons.memory, size: 20),
-                  SizedBox(width: 8),
-                  Text('Memory Status'),
-                ],
-              ),
-            ),
-            const PopupMenuItem<String>(
-              value: 'export',
-              child: Row(
-                children: [
-                  Icon(Icons.download, size: 20),
-                  SizedBox(width: 8),
-                  Text('Export Chat'),
-                ],
-              ),
-            ),
-            const PopupMenuDivider(),
             const PopupMenuItem<String>(
               value: 'clear_chat',
               child: Row(
